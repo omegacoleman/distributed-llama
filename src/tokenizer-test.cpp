@@ -2,7 +2,7 @@
 #include <cstring>
 #include "tokenizer.hpp"
 
-#define DEV_TESTS false
+#define DEV_TESTS true
 
 #define ASSERT_EQ(a, b) \
     if (a != b) { \
