@@ -1,0 +1,121 @@
+job "dllama" {
+  datacenters = ["dc1"]
+  type = "service"
+  group "master" {
+    count = 1
+    network {
+      // Here we expose to port 3000 to give an example
+      // Use more pratical approach for production
+      // e.g. Exposing to reverse proxy via service discovery
+      mode = "host"
+      port "http" {
+        static = 3000
+      }
+      port "api" {}
+    }
+    task "open-webui" {
+      driver = "docker"
+      config {
+        image = "ghcr.io/open-webui/open-webui:main"
+        ports = [ "http" ]
+        mount {
+          type = "bind"
+          target = "/app/backend/data"
+          source = "/data/webui"
+          readonly = false
+        }
+      }
+      resources {
+        cpu = 4
+        memory = 4096
+      }
+      template {
+        data = <<EOF
+OFFLINE_MODE="True"
+PORT="{{ env "NOMAD_PORT_http" }}"
+ENABLE_OPENAI_API="True"
+ENABLE_OLLAMA_API="False"
+ENABLE_FOLLOW_UP_GENERATION="False"
+ENABLE_CODE_EXECUTION="False"
+ENABLE_CODE_INTERPRETER="False"
+ENABLE_DIRECT_CONNECTIONS="False"
+ENABLE_AUTOCOMPLETE_GENERATION="False"
+ENABLE_EVALUATION_ARENA_MODELS="False"
+ENABLE_MESSAGE_RATING="False"
+ENABLE_COMMUNITY_SHARING="False"
+ENABLE_REALTIME_CHAT_SAVE="True"
+OPENAI_API_BASE_URL="http://{{ env "NOMAD_ADDR_api" }}/v1"
+PORT="{{ env "NOMAD_PORT_http" }}"
+EOF
+        destination = "/env.txt"
+        change_mode = "restart"
+        env = true
+      }
+    }
+    task "dllama-api" {
+      driver = "docker"
+      config {
+        image = "dllama:latest"
+        ports = [ "api" ]
+        mount {
+          type = "bind"
+          target = "/data"
+          source = "/data/models"
+          readonly = true
+        }
+      }
+      resources {
+        cpu = 20
+        memory = 51200
+      }
+      template {
+        data = <<EOF
+DLLAMA_ROLE="api"
+DLLAMA_API_PORT="{{ env "NOMAD_PORT_api" }}"
+DLLAMA_API_WORKERS="{{ range $index, $value := nomadService "dllama-worker" }}
+{{- if $index }} {{ end }}
+{{- $value.Address }}:{{ $value.Port }}
+{{- end }}"
+DLLAMA_MODEL_PATH="/data/dllama_model_llama-3.3-70b_q40.m"
+DLLAMA_TOKENIZER_PATH="/data/dllama_tokenizer_llama-3.3-70b.t"
+EOF
+        destination = "/env.txt"
+        change_mode = "restart"
+        env = true
+      }
+    }
+  }
+
+  group "slave" {
+    count = 3
+    network {
+      port "worker" {}
+    }
+    service {
+      provider = "nomad"
+      name = "dllama-worker"
+      port = "worker"
+    }
+    task "dllama-worker" {
+      driver = "docker"
+      config {
+        image = "gwong-dllama:0833b28c"
+        ports = [ "worker" ]
+      }
+      resources {
+        cpu = 20
+        memory = 51200
+      }
+      template {
+        data = <<EOF
+DLLAMA_ROLE="worker"
+DLLAMA_WORKER_PORT="{{ env "NOMAD_PORT_worker" }}"
+EOF
+        destination = "/env.txt"
+        change_mode = "restart"
+        env = true
+      }
+    }
+    }
+  }
+
