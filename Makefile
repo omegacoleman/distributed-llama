@@ -1,12 +1,16 @@
 CXX = g++
 CXXFLAGS = -std=c++11 -Werror -Wformat -Werror=format-security 
 
-ifndef TERMUX_VERSION
+ifdef E5_2680_V4
+	CXXFLAGS += -march=broadwell -mabm -maes -mrtm --param=l1-cache-line-size=64 --param=l1-cache-size=32 --param=l2-cache-size=35840
+else
 	CXXFLAGS += -march=native -mtune=native
 endif
 
+CXXFLAGS += -gdwarf-5 -g3
+
 ifdef DEBUG
-	CXXFLAGS += -g -fsanitize=address
+	CXXFLAGS += -fsanitize=address
 else
 	CXXFLAGS += -O3
 endif
