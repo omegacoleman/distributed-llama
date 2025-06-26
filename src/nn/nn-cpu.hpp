@@ -9,19 +9,20 @@
 
 class NnCpuDevice : public NnDevice {
 public:
-    NnByte **buffers;
+    NnByte ***slotBuffers;
 private:
     NnNetConfig *netConfig;
     NnNodeConfig *nodeConfig;
     NnNetExecution *netExecution;
     NnUint nBuffers;
+    NnUint nSlots;
     NnByte *bufferFlags;
 public:
     NnCpuDevice(NnNetConfig *netConfig, NnNodeConfig *nodeConfig, NnNetExecution *netExecution);
     ~NnCpuDevice() override;
     NnUint maxNThreads() override;
     NnDeviceSegment *createSegment(NnUint segmentIndex) override;
-    void resolvePointer(NnByte **pntr, NnSize2D *pntrSize, NnPointerConfig *pointerConfig);
+    void resolvePointer(NnByte **pntr, NnSize2D *pntrSize, NnPointerConfig *pointerConfig, NnUint slot);
 };
 
 class NnCpuDeviceSegment : public NnDeviceSegment {

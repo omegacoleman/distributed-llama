@@ -44,6 +44,7 @@ public:
 typedef struct {
     NnUint position;
     NnUint batchSize; // 0 = stop signal
+    NnUint slot;
 } LlmControlPacket;
 
 class RootLlmInference {
@@ -61,6 +62,7 @@ public:
     RootLlmInference(LlmNet *net, NnNetExecution *execution, NnExecutor *executor, NnNetwork *network);
     void setBatchSize(NnUint batchSize);
     void setPosition(NnUint position);
+    void setSlot(NnUint slot);
     void setToken(NnUint batchIndex, NnUint token);
     void forward();
     void finish();

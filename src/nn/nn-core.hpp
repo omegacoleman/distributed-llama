@@ -173,6 +173,7 @@ typedef struct {
     NnPipeConfig *pipes;
     NnUint nPreSyncs;
     NnPreSyncConfig *preSyncs;
+    NnUint nSlots;
 } NnNetConfig;
 
 typedef struct {

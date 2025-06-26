@@ -164,7 +164,7 @@ void printNodeRequiredMemory(NnNetConfig *netConfig, NnNodeConfig *nodeConfig) {
     for (NnUint pipeIndex = 0; pipeIndex < netConfig->nPipes; pipeIndex++)
         total += netConfig->pipes[pipeIndex].size.nBytes;
     for (NnUint bufferIndex = 0; bufferIndex < nodeConfig->nBuffers; bufferIndex++)
-        total += nodeConfig->buffers[bufferIndex].size.nBytes;
+        total += nodeConfig->buffers[bufferIndex].size.nBytes * netConfig->nSlots;
     for (NnUint segmentIndex = 0; segmentIndex < nodeConfig->nSegments; segmentIndex++) {
         NnSegmentConfig *segment = &nodeConfig->segments[segmentIndex];
         for (NnUint opIndex = 0; opIndex < segment->nOps; opIndex++) {

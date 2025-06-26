@@ -166,6 +166,7 @@ RootLlmInference::RootLlmInference(LlmNet *net, NnNetExecution *execution, NnExe
     this->execution = execution;
     this->executor = executor;
     this->network = network; // May be nullptr!
+    this->controlPacket.slot = 0;
 }
 
 void RootLlmInference::setBatchSize(NnUint batchSize) {
@@ -180,6 +181,11 @@ void RootLlmInference::setPosition(NnUint position) {
     controlPacket.position = position;
     for (NnUint i = 0; i < execution->batchSize; i++)
         positionPipe[i] = (float)(position + i);
+}
+
+void RootLlmInference::setSlot(NnUint slot) {
+    execution->setSlot(slot);
+    controlPacket.slot = slot;
 }
 
 void RootLlmInference::setToken(NnUint batchIndex, NnUint token) {
@@ -218,14 +224,16 @@ bool WorkerLlmInference::tryReadControlPacket() {
     }
     for (NnUint i = 0; i < controlPacket.batchSize; i++)
         positionPipe[i] = (float)(controlPacket.position + i);
+
     execution->setBatchSize(controlPacket.batchSize);
+    execution->setSlot(controlPacket.slot);
     return true;
 }
 
 void runInferenceApp(AppCliArgs *args, void (*handler)(AppInferenceContext *context)) {
     NnUint nNodes = args->nWorkers + 1;
 
-    LlmHeader header = loadLlmHeader(args->modelPath, args->maxSeqLen, args->syncType);
+    LlmHeader header = loadLlmHeader(args->modelPath, args->maxSeqLen, args->syncType, 1);
     if (nNodes > header.nKvHeads)
         // TODO: https://github.com/b4rtaz/distributed-llama/issues/70
         throw std::runtime_error("This version does not support more nodes than the number of KV heads in the model");

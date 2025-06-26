@@ -13,22 +13,25 @@ typedef struct {
     const char *name;
     NnByte nBatches;
     NnByte *bufferFlags;
-    NnByte **buffers;
+    NnByte ***slotBuffers;
     NnBufferConfig *bufferConfigs;
     NnByte **pipes;
     NnPipeConfig *pipeConfigs;
     void *opConfig;
 
-    NnByte **input;
+    NnByte ***slotInput;
     NnSize2D inputSize;
     bool hasInputContinuousMemory;
 
-    NnByte **output;
+    NnByte ***slotOutput;
     NnSize2D outputSize;
     bool hasOutputContinuousMemory;
 
     NnByte *weight;
     NnSize2D weightSize;
+
+    NnUint* slot;
+    NnUint nSlots;
 } NnCpuOpContext;
 
 typedef void (*NnCpuOpForwardInit)(NnCpuOpContext *context);

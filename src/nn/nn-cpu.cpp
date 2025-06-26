@@ -45,12 +45,16 @@ NnCpuDevice::NnCpuDevice(NnNetConfig *netConfig, NnNodeConfig *nodeConfig, NnNet
 
     printCpuInstructionSet();
 
+    nSlots = netConfig->nSlots;
     nBuffers = nodeConfig->nBuffers;
-    buffers = new NnByte *[nBuffers];
-    for (NnUint bufferIndex = 0; bufferIndex < nBuffers; bufferIndex++) {
-        NnBufferConfig *config = &nodeConfig->buffers[bufferIndex];
-        NnByte *buffer = allocAlignedBuffer(config->size.nBytes);
-        buffers[bufferIndex] = buffer;
+    slotBuffers = new NnByte **[nSlots];
+    for (NnUint slotIndex = 0; slotIndex < nSlots; slotIndex++) {
+        slotBuffers[slotIndex] = new NnByte *[nBuffers];
+        for (NnUint bufferIndex = 0; bufferIndex < nBuffers; bufferIndex++) {
+            NnBufferConfig *config = &nodeConfig->buffers[bufferIndex];
+            NnByte *buffer = allocAlignedBuffer(config->size.nBytes);
+            slotBuffers[slotIndex][bufferIndex] = buffer;
+        }
     }
 
     bufferFlags = new NnByte[nBuffers];
@@ -58,9 +62,10 @@ NnCpuDevice::NnCpuDevice(NnNetConfig *netConfig, NnNodeConfig *nodeConfig, NnNet
 }
 
 NnCpuDevice::~NnCpuDevice() {
-    for (NnUint bufferIndex = 0; bufferIndex < nBuffers; bufferIndex++)
-        releaseAlignedBuffer(buffers[bufferIndex]);
-    delete[] buffers;
+    for (NnUint slotIndex = 0; slotIndex < nSlots; slotIndex++)
+        for (NnUint bufferIndex = 0; bufferIndex < nBuffers; bufferIndex++)
+            releaseAlignedBuffer(slotBuffers[slotIndex][bufferIndex]);
+    delete[] slotBuffers;
     delete[] bufferFlags;
 }
 
@@ -77,17 +82,21 @@ NnDeviceSegment *NnCpuDevice::createSegment(NnUint segmentIndex) {
     std::vector<NnSize2D> inputSizes(segmentConfig->nOps);
     std::vector<NnSize2D> outputSizes(segmentConfig->nOps);
 
-    std::unique_ptr<NnByte *[]> inputsPtr(new NnByte *[segmentConfig->nOps * netConfig->nBatches]);
-    std::unique_ptr<NnByte *[]> outputsPtr(new NnByte *[segmentConfig->nOps * netConfig->nBatches]);
-    NnByte **inputs = inputsPtr.get();
-    NnByte **outputs = outputsPtr.get();
+    NnByte ***slotInputs = new NnByte **[nSlots];
+    NnByte ***slotOutputs = new NnByte **[nSlots];
+    for (NnUint slotIndex = 0; slotIndex < nSlots; slotIndex++) {
+      slotInputs[slotIndex] = new NnByte *[segmentConfig->nOps * netConfig->nBatches];
+      slotOutputs[slotIndex] = new NnByte *[segmentConfig->nOps * netConfig->nBatches];
+    }
 
     for (NnUint opIndex = 0; opIndex < segmentConfig->nOps; opIndex++) {
         NnOpConfig *opConfig = &segmentConfig->ops[opIndex];
         NnSize2D inputSize;
         NnSize2D outputSize;
-        resolvePointer(&inputs[opIndex * netConfig->nBatches], &inputSize, &opConfig->input);
-        resolvePointer(&outputs[opIndex * netConfig->nBatches], &outputSize, &opConfig->output);
+        for (NnUint slotIndex = 0; slotIndex < nSlots; slotIndex++) {
+            resolvePointer(&slotInputs[slotIndex][opIndex * netConfig->nBatches], &inputSize, &opConfig->input, slotIndex);
+            resolvePointer(&slotOutputs[slotIndex][opIndex * netConfig->nBatches], &outputSize, &opConfig->output, slotIndex);
+        }
         NnOpQuantType opQuant = getOpQuantType(
             inputSize.floatType,
             opConfig->weightSize.floatType,
@@ -108,9 +117,6 @@ NnDeviceSegment *NnCpuDevice::createSegment(NnUint segmentIndex) {
         opForwardLocal[opIndex] = forward;
     }
 
-    inputsPtr.release();
-    outputsPtr.release();
-
     NnCpuOpForward *opForward = new NnCpuOpForward[segmentConfig->nOps];
     NnCpuOpContext *opContexts = new NnCpuOpContext[segmentConfig->nOps];
 
@@ -124,17 +130,25 @@ NnDeviceSegment *NnCpuDevice::createSegment(NnUint segmentIndex) {
         opContext->nBatches = netConfig->nBatches;
         opContext->pipes = netExecution->pipes;
         opContext->pipeConfigs = netConfig->pipes;
-        opContext->buffers = buffers;
+        opContext->slotBuffers = slotBuffers;
         opContext->bufferConfigs = nodeConfig->buffers;
         opContext->bufferFlags = bufferFlags;
 
-        opContext->input = &inputs[opIndex * netConfig->nBatches];
+        opContext->slotInput = new NnByte **[nSlots];
+        opContext->slotOutput = new NnByte **[nSlots];
+        for (NnUint slotIndex = 0; slotIndex < nSlots; slotIndex++) {
+          opContext->slotInput[slotIndex] = &slotInputs[slotIndex][opIndex * netConfig->nBatches];
+          opContext->slotOutput[slotIndex] = &slotOutputs[slotIndex][opIndex * netConfig->nBatches];
+        }
+
         opContext->inputSize = inputSizes[opIndex];
         opContext->hasInputContinuousMemory = hasPointerContinuousMemory(&opConfig->input);
 
-        opContext->output = &outputs[opIndex * netConfig->nBatches];
         opContext->outputSize = outputSizes[opIndex];
         opContext->hasOutputContinuousMemory = hasPointerContinuousMemory(&opConfig->output);
+
+        opContext->slot = &netExecution->slot;
+        opContext->nSlots = netExecution->nSlots;
 
 #if not(DEBUG_USE_MMAP_FOR_WEIGHTS)
         if (opContext->weightSize.nBytes > 0)
@@ -147,6 +161,10 @@ NnDeviceSegment *NnCpuDevice::createSegment(NnUint segmentIndex) {
             opInit(opContext);
         opForward[opIndex] = opForwardLocal[opIndex];
     }
+
+    delete [] slotInputs;
+    delete [] slotOutputs;
+
     return new NnCpuDeviceSegment(opForward, opContexts, segmentConfig->nOps);
 }
 
@@ -154,8 +172,8 @@ NnCpuDeviceSegment::~NnCpuDeviceSegment() {
     for (NnUint opIndex = 0; opIndex < nOps; opIndex++) {
         NnCpuOpContext *context = &opContexts[opIndex];
         if (opIndex == 0) {
-            delete[] context->input;
-            delete[] context->output;
+            delete[] context->slotInput;
+            delete[] context->slotOutput;
         }
 #if not(DEBUG_USE_MMAP_FOR_WEIGHTS)
         if (context->weightSize.nBytes > 0)
@@ -166,13 +184,13 @@ NnCpuDeviceSegment::~NnCpuDeviceSegment() {
     delete[] opContexts;
 }
 
-void NnCpuDevice::resolvePointer(NnByte **pntr, NnSize2D *pntrSize, NnPointerConfig *pointerConfig) {
+void NnCpuDevice::resolvePointer(NnByte **pntr, NnSize2D *pntrSize, NnPointerConfig *pointerConfig, NnUint slot) {
     NnByte *source;
     NnSize2D *sourceSize;
 
     switch (pointerConfig->source) {
     case SRC_BUFFER:
-        source = buffers[pointerConfig->pointerIndex];
+        source = slotBuffers[slot][pointerConfig->pointerIndex];
         sourceSize = &nodeConfig->buffers[pointerConfig->pointerIndex].size;
         break;
     case SRC_PIPE:

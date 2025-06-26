@@ -11,7 +11,9 @@ NnNetExecution::NnNetExecution(NnUint nThreads, NnNetConfig *netConfig) {
     this->nThreads = nThreads;
     this->nBatches = netConfig->nBatches;
     this->nPipes = netConfig->nPipes;
+    this->nSlots = netConfig->nSlots;
     this->batchSize = 0; // This value must be overwritten before calling forward
+    this->slot = 0;
 
     pipes = new NnByte *[netConfig->nPipes];
     for (NnUint pipeIndex = 0; pipeIndex < netConfig->nPipes; pipeIndex++) {
@@ -31,6 +33,11 @@ NnNetExecution::~NnNetExecution() {
 void NnNetExecution::setBatchSize(NnUint batchSize) {
     assert(batchSize <= nBatches);
     this->batchSize = batchSize;
+}
+
+void NnNetExecution::setSlot(NnUint slot) {
+    assert(slot <= nSlots);
+    this->slot = slot;
 }
 
 NnExecutorDevice::NnExecutorDevice(NnDevice *device, int segmentFrom, int segmentTo) {

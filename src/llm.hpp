@@ -61,6 +61,7 @@ typedef struct {
     float ropeScalingHighFreqFactory;
     NnUint ropeScalingOrigMaxSeqLen;
     float normEpsilon;
+    NnUint slots;
 
     NnFloatType weightType;
     NnFloatType syncType;
@@ -86,7 +87,7 @@ typedef struct {
     NnSize2D rmsNormSize;
 } LlmNet;
 
-LlmHeader loadLlmHeader(const char* path, const unsigned int maxSeqLen, NnFloatType syncType);
+LlmHeader loadLlmHeader(const char* path, const unsigned int maxSeqLen, NnFloatType syncType, const NnUint slots);
 void printLlmHeader(LlmHeader *header);
 LlmNet buildLlmNet(LlmHeader *h, NnUint nNodes, NnUint nBatches);
 void releaseLlmNet(LlmNet *net);

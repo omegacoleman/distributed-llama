@@ -48,6 +48,7 @@ public:
         } else {
             config.preSyncs = nullptr;
         }
+        config.nSlots = 1;
         return config;
     }
 };

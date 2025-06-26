@@ -23,7 +23,7 @@ static const char *archTypeToString(LlmArchType type) {
     throw std::runtime_error("Unsupported architecture");
 }
 
-LlmHeader loadLlmHeader(const char *path, const NnUint maxSeqLen, NnFloatType syncType) {
+LlmHeader loadLlmHeader(const char *path, const NnUint maxSeqLen, NnFloatType syncType, const NnUint slots) {
     LlmHeader header;
     std::memset(&header, 0, sizeof(LlmHeader));
     header.weightType = F_UNK;
@@ -90,6 +90,8 @@ LlmHeader loadLlmHeader(const char *path, const NnUint maxSeqLen, NnFloatType sy
     if (maxSeqLen > 0 && header.seqLen > maxSeqLen)
         header.seqLen = maxSeqLen;
 
+    header.slots = slots;
+
     header.headSize = header.dim / header.nHeads;
     header.kvDim = (header.dim  *header.nKvHeads) / header.nHeads;
     header.syncType = syncType;
@@ -121,6 +123,7 @@ void printLlmHeader(LlmHeader *header) {
             header->ropeScalingHighFreqFactory,
             header->ropeScalingOrigMaxSeqLen);
     }
+    printf("💡 Slots: %u\n", header->slots);
 }
 
 LlmNet buildLlmNet(LlmHeader *h, NnUint nNodes, NnUint nBatches) {
@@ -153,6 +156,7 @@ LlmNet buildLlmNet(LlmHeader *h, NnUint nNodes, NnUint nBatches) {
 
     n.header = h;
     n.netConfig = netBuilder.build();
+    n.netConfig.nSlots = h->slots;
     n.nodeConfigs = new NnNodeConfig[nNodes];
 
     for (NnUint nodeIndex = 0; nodeIndex < nNodes; nodeIndex++) {
