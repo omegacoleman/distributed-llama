@@ -291,53 +291,6 @@ void writeChatCompletionChunk(HttpRequest &request, const std::string &delta, co
     }
 }
 
-class NaiveCacheItem {
-public:
-    pos_t endPos;
-    ChatMessage message;
-    NaiveCacheItem(pos_t endPos, ChatMessage message) {
-        this->endPos = endPos;
-        this->message = message;
-    }
-};
-
-class NaiveCache {
-private:
-    std::vector<NaiveCacheItem> cache;
-public:
-    void push(NaiveCacheItem item) {
-        cache.push_back(item);
-    }
-
-    void clear() {
-        cache.clear();
-    }
-
-    bool resolveDeltaPrompt(std::vector<ChatMessage>& messages, pos_t& startPos) {
-        size_t cacheSize = cache.size();
-        if (cacheSize == 0)
-            return false;
-        if (messages.size() > cacheSize) {
-            size_t i = 0;
-            while (i < cacheSize) {
-                if (
-                    cache[i].message.role != messages[i].role ||
-                    cache[i].message.content != messages[i].content
-                ) break;
-                i++;
-            }
-            if (i == cacheSize) {
-                startPos = cache[i - 1].endPos;
-                messages.erase(messages.begin(), messages.begin() + i);
-                printf("🐤 Found naive cache for %zu messages, pos=%d\n", i, startPos);
-                return true;
-            }
-        }
-        cache.clear();
-        return false;
-    }
-};
-
 class ApiServer {
 private:
     RootLlmInference *inference;
@@ -347,7 +300,6 @@ private:
     LlmHeader *header;
     EosDetector *eosDetector;
     ChatTemplateGenerator *templateGenerator;
-    NaiveCache naiveCache;
 
 public:
     ApiServer(RootLlmInference *inference, Tokenizer *tokenizer, Sampler *sampler, AppCliArgs *args, LlmHeader *header, EosDetector *eosDetector, ChatTemplateGenerator *templateGenerator) {
@@ -363,16 +315,12 @@ public:
     void complete(HttpRequest& request) {
         InferenceParams params = parseRequest(request);
 
-        pos_t startPos = 0;
-        std::vector<ChatMessage> deltaPrompt = params.messages;
-        naiveCache.resolveDeltaPrompt(deltaPrompt, startPos);
-
-        size_t nInputItems = deltaPrompt.size();
+        size_t nInputItems = params.messages.size();
         std::unique_ptr<ChatItem[]> inputItemsPtr(new ChatItem[nInputItems]);
         ChatItem *inputItems = inputItemsPtr.get();
         for (size_t i = 0; i < nInputItems; i++) {
-            inputItems[i].role = deltaPrompt[i].role;
-            inputItems[i].message = deltaPrompt[i].content;
+            inputItems[i].role = params.messages[i].role;
+            inputItems[i].message = params.messages[i].content;
         }
 
         GeneratedChat inputPrompt = templateGenerator->generate(nInputItems, inputItems, true);
@@ -381,10 +329,9 @@ public:
         int nPromptTokens;
         std::unique_ptr<int[]> promptTokensPtr(new int[inputPrompt.length + 2]);
         int *promptTokens = promptTokensPtr.get();
-        bool addBos = startPos == 0;
-        tokenizer->encode((char*)inputPrompt.content, promptTokens, &nPromptTokens, addBos, true);
+        tokenizer->encode((char*)inputPrompt.content, promptTokens, &nPromptTokens, true, true);
 
-        pos_t promptEndPos = startPos + nPromptTokens - 1;
+        pos_t promptEndPos = nPromptTokens - 1;
         if (promptEndPos > header->seqLen)
             promptEndPos = header->seqLen;
 
@@ -392,22 +339,17 @@ public:
         if (maxPredPos > header->seqLen)
             maxPredPos = header->seqLen;
 
-        for (size_t j = 0; j < deltaPrompt.size(); j++) {
-            naiveCache.push(NaiveCacheItem(promptEndPos, deltaPrompt[j]));
-        }
-
-        std::string buffer;
+        std::ostringstream oss;
 
         if (params.stream)
             request.writeStreamStartChunk();
         if (inputPrompt.publicPrompt != nullptr) {
             if (params.stream)
                 writeChatCompletionChunk(request, inputPrompt.publicPrompt, false);
-            buffer += inputPrompt.publicPrompt;
+            oss << inputPrompt.publicPrompt;
         }
 
-        NnUint pos = startPos;
-        int token;
+        NnUint pos = 0;
         for (NnUint i = 0; ;) {
             long remainingTokens = promptEndPos - pos;
             if (remainingTokens <= 0)
@@ -426,19 +368,20 @@ public:
 
             i += batchSize;
             pos += batchSize;
-            token = promptTokens[i + 1];
         }
 
         inference->setBatchSize(1);
         tokenizer->resetDecoder();
         eosDetector->reset();
 
+        int token = promptTokens[pos];
         for (; pos < maxPredPos;) {
             inference->setPosition(pos);
             inference->setToken(0, token);
             inference->forward();
 
             token = sampler->sample(inference->logitsPipe);
+            promptTokens[pos] = token;
 
             char *piece = tokenizer->decode(token);
             EosDetectorType eosType = eosDetector->append(token, piece);
@@ -454,7 +397,7 @@ public:
                     std::string deltaStr(delta);
                     if (params.stream)
                         writeChatCompletionChunk(request, deltaStr, false);
-                    buffer += deltaStr;
+                    oss << deltaStr;
                 }
                 eosDetector->reset();
             }
@@ -462,12 +405,7 @@ public:
             if (eosType == EOS) break;
         }
 
-        ChatMessage chatMessage("assistant", buffer);
-        if (pos == header->seqLen) {
-            naiveCache.clear();
-        } else {
-            naiveCache.push(NaiveCacheItem(pos, chatMessage));
-        }
+        ChatMessage chatMessage("assistant", oss.str());
 
         if (params.stream) {
             writeChatCompletionChunk(request, "", true);
