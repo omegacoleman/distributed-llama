@@ -4,6 +4,7 @@
 #include <chrono>
 #include "nn/nn-core.hpp"
 #include "nn/nn-cpu.hpp"
+#include "nn/nn-cache.hpp"
 #include "tokenizer.hpp"
 #include "llm.hpp"
 
@@ -12,11 +13,13 @@ public:
     char *mode;
     NnUint nThreads;
     NnUint nBatches;
+    NnUint nSlots;
     bool help;
 
     // inference
     char *modelPath;
     char *tokenizerPath;
+    char *cacheDbPath;
     char *prompt;
     NnFloatType syncType;
     NnUint nWorkers;

@@ -24,6 +24,7 @@
 #include "json.hpp"
 #include "api-types.hpp"
 #include "nn/nn-network.hpp"
+#include "nn/nn-cache.hpp"
 
 typedef unsigned int pos_t;
 
@@ -300,9 +301,11 @@ private:
     LlmHeader *header;
     EosDetector *eosDetector;
     ChatTemplateGenerator *templateGenerator;
+    NnPrefixCacheManager* cacheManager; // TODO ptr or obj ?
+    NnCacheDatabase* db;
 
 public:
-    ApiServer(RootLlmInference *inference, Tokenizer *tokenizer, Sampler *sampler, AppCliArgs *args, LlmHeader *header, EosDetector *eosDetector, ChatTemplateGenerator *templateGenerator) {
+    ApiServer(RootLlmInference *inference, Tokenizer *tokenizer, Sampler *sampler, AppCliArgs *args, LlmHeader *header, EosDetector *eosDetector, ChatTemplateGenerator *templateGenerator, NnCacheDatabase *db) {
         this->inference = inference;
         this->tokenizer = tokenizer;
         this->sampler = sampler;
@@ -310,6 +313,8 @@ public:
         this->header = header;
         this->eosDetector = eosDetector;
         this->templateGenerator = templateGenerator;
+        this->cacheManager = new NnPrefixCacheManager(header->slots, db);
+        this->db = db;
     }
 
     void complete(HttpRequest& request) {
@@ -335,9 +340,36 @@ public:
         if (promptEndPos > header->seqLen)
             promptEndPos = header->seqLen;
 
-        pos_t maxPredPos = params.max_tokens > 0 ? (promptEndPos + params.max_tokens) : header->seqLen;
+        pos_t maxPredPos = params.max_tokens > 0 ? (nPromptTokens + params.max_tokens) : header->seqLen;
         if (maxPredPos > header->seqLen)
             maxPredPos = header->seqLen;
+
+        unsigned slot;
+        pos_t inferenceStartPos = 0;
+        NnCacheDst dst = cacheManager->lookup((unsigned*)promptTokens, promptEndPos);
+        NnCacheId loadFrom = CACHE_SKIP;
+        NnCacheId saveTo = CACHE_SKIP;
+        if (dst.type == CACHE_DEVICE_SLOT) {
+            slot = dst.slot;
+            inferenceStartPos = dst.matchLen;
+            saveTo = dst.id;
+            printf("🔄 Prefix cache hit device slot %u (len = %u)\n", dst.slot, dst.prefixLen);
+        } else if (dst.type == CACHE_DB) {
+            slot = cacheManager->pickSlot();
+            loadFrom = dst.id;
+            inferenceStartPos = dst.matchLen;
+            if (dst.matchLen == dst.prefixLen)
+                saveTo = loadFrom;
+            printf("🔄 Prefix cache hit db, loading from cache id %ld to slot %u (len = %u)\n", loadFrom, slot, dst.prefixLen);
+            
+        } else { // CACHE_MISS
+            slot = cacheManager->pickSlot();
+            printf("❌ Prefix cache missed, inference from scratch on slot %u\n", slot);
+        }
+
+        if (saveTo == CACHE_SKIP) {
+            saveTo = cacheManager->getCacheId();
+        }
 
         std::ostringstream oss;
 
@@ -349,8 +381,8 @@ public:
             oss << inputPrompt.publicPrompt;
         }
 
-        NnUint pos = 0;
-        for (NnUint i = 0; ;) {
+        NnUint pos = inferenceStartPos;
+        for (; ;) {
             long remainingTokens = promptEndPos - pos;
             if (remainingTokens <= 0)
                 break;
@@ -361,12 +393,13 @@ public:
 
             inference->setBatchSize(batchSize);
             inference->setPosition(pos);
+            inference->setSlot(slot);
+            inference->setCacheId(CACHE_SKIP, pos == inferenceStartPos ? loadFrom : CACHE_SKIP);
             for (NnUint j = 0; j < batchSize; j++)
-                inference->setToken(j, promptTokens[i + j]);
+                inference->setToken(j, promptTokens[pos + j]);
 
             inference->forward();
 
-            i += batchSize;
             pos += batchSize;
         }
 
@@ -378,8 +411,10 @@ public:
         for (; pos < maxPredPos;) {
             inference->setPosition(pos);
             inference->setToken(0, token);
+            inference->setCacheId(CACHE_SKIP, pos == inferenceStartPos ? loadFrom : CACHE_SKIP);
             inference->forward();
 
+            pos++;
             token = sampler->sample(inference->logitsPipe);
             promptTokens[pos] = token;
 
@@ -401,9 +436,13 @@ public:
                 }
                 eosDetector->reset();
             }
-            pos++;
-            if (eosType == EOS) break;
+            if (eosType == EOS)
+              break;
         }
+        inference->setPosition(pos);
+        inference->setToken(0, token);
+        inference->setCacheId(saveTo, CACHE_SKIP);
+        inference->forward();
 
         ChatMessage chatMessage("assistant", oss.str());
 
@@ -419,6 +458,12 @@ public:
         }
         printf("🔶\n");
         fflush(stdout);
+
+        cacheManager->updateDeviceSlot(slot, (unsigned*)promptTokens, pos, saveTo);
+        if (db && saveTo != CACHE_SKIP) {
+            cacheManager->updateNnCacheDatabaseMetadata(saveTo, (unsigned*)promptTokens, pos);
+            db->commit(saveTo);
+        }
     }
 
 private:
@@ -475,7 +520,7 @@ static void server(AppInferenceContext *context) {
     TokenizerChatStops stops(context->tokenizer);
     ChatTemplateGenerator templateGenerator(context->args->chatTemplateType, context->tokenizer->chatTemplate, stops.stops[0]);
     EosDetector eosDetector(stops.nStops, context->tokenizer->eosTokenIds.data(), stops.stops, stops.maxStopLength, stops.maxStopLength);
-    ApiServer api(context->inference, context->tokenizer, context->sampler, context->args, context->header, &eosDetector, &templateGenerator);
+    ApiServer api(context->inference, context->tokenizer, context->sampler, context->args, context->header, &eosDetector, &templateGenerator, context->cacheDb);
 
     printf("Server URL: http://127.0.0.1:%d/v1/\n", context->args->port);
 
@@ -525,12 +570,14 @@ void usage() {
     fprintf(stderr, "        [--temperature <temp>]\n");
     fprintf(stderr, "        [--topp <t>]\n");
     fprintf(stderr, "        [--seed <s>]\n");
+    fprintf(stderr, "        [--cache-db <path>]\n");
     fprintf(stderr, "Example:\n");
     fprintf(stderr, "  sudo nice -n -20 ./dllama-api --port 9990 --nthreads 4 \\\n");
     fprintf(stderr, "    --model dllama_model_llama3_2_3b_instruct_q40.m \\\n");
     fprintf(stderr, "    --tokenizer dllama_tokenizer_llama3_2_3b_instruct_q40.t \\\n");
     fprintf(stderr, "    --buffer-float-type q80 --max-seq-len 8192 \\\n");
-    fprintf(stderr, "    --workers 10.0.0.2:9998 10.0.0.3:9998 10.0.0.4:9998\n");
+    fprintf(stderr, "    --workers 10.0.0.2:9998 10.0.0.3:9998 10.0.0.4:9998 \\\n");
+    fprintf(stderr, "    --cache-db ~/.cache/dllama/dllama_model_llama3_2_3b_instruct_q4\n");
     fflush(stderr);
 }
 

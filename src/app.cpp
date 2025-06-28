@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "rocksdb-cache.hpp"
 #include <cassert>
 #include <cstring>
 #include <stdexcept>
@@ -27,8 +28,10 @@ AppCliArgs AppCliArgs::parse(int argc, char* *argv, bool requireMode) {
     args.mode = nullptr;
     args.nBatches = 32;
     args.nThreads = 1;
+    args.nSlots = 1;
     args.modelPath = nullptr;
     args.tokenizerPath = nullptr;
+    args.cacheDbPath = nullptr;
     args.prompt = nullptr;
     args.syncType = F_32;
     args.nWorkers = 0;
@@ -67,6 +70,8 @@ AppCliArgs AppCliArgs::parse(int argc, char* *argv, bool requireMode) {
             args.modelPath = value;
         } else if (std::strcmp(name, "--tokenizer") == 0) {
             args.tokenizerPath = value;
+        } else if (std::strcmp(name, "--cache-db") == 0) {
+            args.cacheDbPath = value;
         } else if (std::strcmp(name, "--prompt") == 0) {
             args.prompt = value;
         } else if (std::strcmp(name, "--buffer-float-type") == 0) {
@@ -242,7 +247,7 @@ bool WorkerLlmInference::tryReadControlPacket() {
 void runInferenceApp(AppCliArgs *args, void (*handler)(AppInferenceContext *context)) {
     NnUint nNodes = args->nWorkers + 1;
 
-    LlmHeader header = loadLlmHeader(args->modelPath, args->maxSeqLen, args->syncType, 1);
+    LlmHeader header = loadLlmHeader(args->modelPath, args->maxSeqLen, args->syncType, args->nSlots);
     if (nNodes > header.nKvHeads)
         // TODO: https://github.com/b4rtaz/distributed-llama/issues/70
         throw std::runtime_error("This version does not support more nodes than the number of KV heads in the model");
@@ -280,8 +285,14 @@ void runInferenceApp(AppCliArgs *args, void (*handler)(AppInferenceContext *cont
         configWriter.writeToWorkers(&net.netConfig, net.nodeConfigs);
     }
 
+    std::unique_ptr<RocksDbCacheDatabase> cacheDb = nullptr;
+    if (args->cacheDbPath) {
+      cacheDb = std::make_unique<RocksDbCacheDatabase>();
+      cacheDb->open(std::string(args->cacheDbPath));
+    }
+
     std::vector<NnExecutorDevice> devices = resolveDevices(args, &net.netConfig, rootNodeConfig, &execution);
-    NnExecutor executor(&net.netConfig, rootNodeConfig, &devices, &execution, synchronizer.get(), nullptr, args->benchmark);
+    NnExecutor executor(&net.netConfig, rootNodeConfig, &devices, &execution, synchronizer.get(), cacheDb.get(), args->benchmark);
 
     NnRootWeightLoader weightLoader(&executor, network, nNodes);
     loadLlmNetWeight(args->modelPath, &net, &weightLoader);
@@ -304,7 +315,7 @@ void runInferenceApp(AppCliArgs *args, void (*handler)(AppInferenceContext *cont
     context.tokenizer = &tokenizer;
     context.network = network;
     context.executor = &executor;
-    context.cacheDb = nullptr;
+    context.cacheDb = cacheDb.get();
 
     handler(&context);
 
@@ -328,7 +339,13 @@ void runWorkerApp(AppCliArgs *args) {
 
         std::vector<NnExecutorDevice> devices = resolveDevices(args, &netConfig, &nodeConfig, &execution);
         NnNetworkNodeSynchronizer synchronizer(network, &execution, &netConfig, &nodeConfig);
-        NnExecutor executor(&netConfig, &nodeConfig, &devices, &execution, &synchronizer, nullptr, false);
+        std::unique_ptr<RocksDbCacheDatabase> cacheDb = nullptr;
+        if (args->cacheDbPath) {
+          cacheDb = std::make_unique<RocksDbCacheDatabase>();
+          cacheDb->open(std::string(args->cacheDbPath));
+        }
+
+        NnExecutor executor(&netConfig, &nodeConfig, &devices, &execution, &synchronizer, cacheDb.get(), false);
 
         NnWorkerWeightReader weightReader(&executor, network);
         weightReader.read();
