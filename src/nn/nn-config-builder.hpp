@@ -96,6 +96,7 @@ class NnSegmentConfigBuilder {
 private:
     std::list<NnOpConfig> ops;
     std::list<NnSyncConfig> syncs;
+    std::list<NnCacheSyncConfig> cacheSyncs;
 
 public:
     template <typename T>
@@ -119,6 +120,10 @@ public:
         syncs.push_back({ pipeIndex, syncType });
     }
 
+    void addCacheSync(NnUint bufferIndex, NnCacheSyncType cacheSyncType) {
+        cacheSyncs.push_back({ bufferIndex, cacheSyncType });
+    }
+
     NnSegmentConfig build() {
         NnSegmentConfig segment;
         segment.nOps = ops.size();
@@ -130,6 +135,11 @@ public:
         if (segment.nSyncs > 0) {
             segment.syncs = new NnSyncConfig[segment.nSyncs];
             std::copy(syncs.begin(), syncs.end(), segment.syncs);
+        }
+        segment.nCacheSyncs = cacheSyncs.size();
+        if (segment.nCacheSyncs > 0) {
+            segment.cacheSyncs = new NnCacheSyncConfig[segment.nCacheSyncs];
+            std::copy(cacheSyncs.begin(), cacheSyncs.end(), segment.cacheSyncs);
         }
         return segment;
     }

@@ -5,6 +5,7 @@
 #include <list>
 #include <memory>
 #include <cstdint>
+#include <vector>
 #include "nn-quants.hpp"
 
 // primitives
@@ -115,6 +116,12 @@ enum NnSyncType {
     SYNC_NODE_SLICES_EXCEPT_ROOT, // only workers send slices to root, root does not send
 };
 
+enum NnCacheSyncType {
+    CACHE_SYNC_SAVE,
+    CACHE_SYNC_SAVE_KV, // only save the (dim0, pos) section
+    CACHE_SYNC_LOAD,
+};
+
 enum NnRopeType {
     ROPE_LLAMA = 0,
     ROPE_FALCON = 1,
@@ -159,11 +166,18 @@ typedef struct {
     NnSyncType syncType;
 } NnSyncConfig;
 
+typedef struct {
+    NnUint bufferIndex;
+    NnCacheSyncType cacheSyncType;
+} NnCacheSyncConfig;
+
 typedef struct  {
     NnUint nOps;
     NnOpConfig *ops;
     NnUint nSyncs;
     NnSyncConfig *syncs;
+    NnUint nCacheSyncs;
+    NnCacheSyncConfig *cacheSyncs;
 } NnSegmentConfig;
 
 typedef struct {
@@ -295,5 +309,33 @@ NnUint splitColMatmulWeight(NnColMatmulSlice *slice, NnUint nodeIndex, NnByte *w
 // rope
 
 void fullfillRopeLlama3Cache(const NnRopeLlamaOpConfig *config, float *cache);
+
+// cache
+
+typedef std::uint64_t NnCacheId;
+
+constexpr NnUint NnPrefixCacheMinLen =    1;
+constexpr NnUint NnPrefixCacheMaxLen = 8192;
+
+constexpr NnUint NnLruScoreIndex = ~0;
+constexpr NnUint NnPrefixIndex = ~1;
+
+class NnCacheDatabaseMetadata {
+public:
+    NnCacheId id;
+    NnUint prefix[NnPrefixCacheMaxLen];
+    NnUint prefixLen;
+    NnUint lruScore;
+};
+
+class NnCacheDatabase {
+public:
+    virtual std::vector<NnCacheDatabaseMetadata> loadMetadata() = 0;
+    virtual void read(NnCacheId id, NnUint bufferIndex, NnByte* dst, NnSize* nBytes) = 0;
+    virtual NnByte *getWriteBuffer(NnCacheId id, NnUint bufferIndex, NnSize nBytes) = 0;
+    virtual void commit(NnCacheId id) = 0;
+};
+
+#define CACHE_SKIP 0
 
 #endif

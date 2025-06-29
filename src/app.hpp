@@ -45,6 +45,8 @@ typedef struct {
     NnUint position;
     NnUint batchSize; // 0 = stop signal
     NnUint slot;
+    NnCacheId cacheSaveId;
+    NnCacheId cacheLoadId;
 } LlmControlPacket;
 
 class RootLlmInference {
@@ -63,6 +65,7 @@ public:
     void setBatchSize(NnUint batchSize);
     void setPosition(NnUint position);
     void setSlot(NnUint slot);
+    void setCacheId(NnCacheId cacheSaveId, NnCacheId cacheLoadId);
     void setToken(NnUint batchIndex, NnUint token);
     void forward();
     void finish();
@@ -89,6 +92,7 @@ typedef struct {
     Sampler *sampler;
     NnNetwork *network;
     NnExecutor *executor;
+    NnCacheDatabase *cacheDb;
 } AppInferenceContext;
 
 void runInferenceApp(AppCliArgs *args, void (*handler)(AppInferenceContext *context));

@@ -204,6 +204,9 @@ LlmNet buildLlmNet(LlmHeader *h, NnUint nNodes, NnUint nBatches) {
             NnSegmentConfigBuilder att;
             NnSegmentConfigBuilder ff;
 
+            att.addCacheSync(kBufferIndex, CACHE_SYNC_LOAD);
+            att.addCacheSync(vBufferIndex, CACHE_SYNC_LOAD);
+
             // att
             if (layerIndex == 0) {
                 att.addOp(
@@ -316,6 +319,8 @@ LlmNet buildLlmNet(LlmHeader *h, NnUint nNodes, NnUint nBatches) {
                 size0(),
                 NnCastOpCodeConfig{});
             att.addSync(zqPipeIndex, SYNC_NODE_SLICES);
+            att.addCacheSync(kBufferIndex, CACHE_SYNC_SAVE_KV);
+            att.addCacheSync(vBufferIndex, CACHE_SYNC_SAVE_KV);
 
             // ff
             ff.addOp(

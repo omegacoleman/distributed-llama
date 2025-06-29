@@ -25,16 +25,34 @@ public:
     void resolvePointer(NnByte **pntr, NnSize2D *pntrSize, NnPointerConfig *pointerConfig, NnUint slot);
 };
 
+class NnCpuDeviceCacheSyncOp {
+public:
+    NnByte** slotTargets;
+    NnSize2D size;
+    NnCacheSyncType type;
+    NnUint bufferIndex;
+    NnCacheId* cacheId;
+
+    // only available in KV-related cache saving
+    float* kvPos;
+};
+
 class NnCpuDeviceSegment : public NnDeviceSegment {
 public:
     NnUint nOps;
     NnCpuOpForward *opForward;
     NnCpuOpContext *opContexts;
-    NnCpuDeviceSegment(NnCpuOpForward *opForward, NnCpuOpContext *opContexts, NnUint nOps)
-        : opForward(opForward), opContexts(opContexts), nOps(nOps) {}
+
+    NnUint* slot;
+    NnUint nCacheSyncOps;
+    NnCpuDeviceCacheSyncOp* cacheSyncOps;
+
+    NnCpuDeviceSegment(NnCpuOpForward *opForward, NnCpuOpContext *opContexts, NnUint nOps, NnCpuDeviceCacheSyncOp* cacheSyncOps, NnUint nCacheSyncOps, NnUint* slot)
+        : opForward(opForward), opContexts(opContexts), nOps(nOps), cacheSyncOps(cacheSyncOps), nCacheSyncOps(nCacheSyncOps), slot(slot) {}
     ~NnCpuDeviceSegment() override;
     void loadWeight(NnUint opIndex, NnSize nBytes, NnByte *weight) override;
     void forward(NnUint opIndex, NnUint nThreads, NnUint threadIndex, NnUint batchSize) override;
+    void syncCache(NnCacheDatabase* db, NnUint nThreads, NnUint threadIndex, NnCacheSyncType type) override;
 };
 
 #endif

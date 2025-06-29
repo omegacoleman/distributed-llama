@@ -167,6 +167,8 @@ RootLlmInference::RootLlmInference(LlmNet *net, NnNetExecution *execution, NnExe
     this->executor = executor;
     this->network = network; // May be nullptr!
     this->controlPacket.slot = 0;
+    this->controlPacket.cacheSaveId = CACHE_SKIP;
+    this->controlPacket.cacheLoadId = CACHE_SKIP;
 }
 
 void RootLlmInference::setBatchSize(NnUint batchSize) {
@@ -186,6 +188,12 @@ void RootLlmInference::setPosition(NnUint position) {
 void RootLlmInference::setSlot(NnUint slot) {
     execution->setSlot(slot);
     controlPacket.slot = slot;
+}
+
+void RootLlmInference::setCacheId(NnCacheId cacheSaveId, NnCacheId cacheLoadId) {
+    execution->setCacheId(cacheSaveId, cacheLoadId);
+    controlPacket.cacheSaveId = cacheSaveId;
+    controlPacket.cacheLoadId = cacheLoadId;
 }
 
 void RootLlmInference::setToken(NnUint batchIndex, NnUint token) {
@@ -227,6 +235,7 @@ bool WorkerLlmInference::tryReadControlPacket() {
 
     execution->setBatchSize(controlPacket.batchSize);
     execution->setSlot(controlPacket.slot);
+    execution->setCacheId(controlPacket.cacheSaveId, controlPacket.cacheLoadId);
     return true;
 }
 
@@ -272,7 +281,7 @@ void runInferenceApp(AppCliArgs *args, void (*handler)(AppInferenceContext *cont
     }
 
     std::vector<NnExecutorDevice> devices = resolveDevices(args, &net.netConfig, rootNodeConfig, &execution);
-    NnExecutor executor(&net.netConfig, rootNodeConfig, &devices, &execution, synchronizer.get(), args->benchmark);
+    NnExecutor executor(&net.netConfig, rootNodeConfig, &devices, &execution, synchronizer.get(), nullptr, args->benchmark);
 
     NnRootWeightLoader weightLoader(&executor, network, nNodes);
     loadLlmNetWeight(args->modelPath, &net, &weightLoader);
@@ -295,6 +304,7 @@ void runInferenceApp(AppCliArgs *args, void (*handler)(AppInferenceContext *cont
     context.tokenizer = &tokenizer;
     context.network = network;
     context.executor = &executor;
+    context.cacheDb = nullptr;
 
     handler(&context);
 
@@ -318,7 +328,7 @@ void runWorkerApp(AppCliArgs *args) {
 
         std::vector<NnExecutorDevice> devices = resolveDevices(args, &netConfig, &nodeConfig, &execution);
         NnNetworkNodeSynchronizer synchronizer(network, &execution, &netConfig, &nodeConfig);
-        NnExecutor executor(&netConfig, &nodeConfig, &devices, &execution, &synchronizer, false);
+        NnExecutor executor(&netConfig, &nodeConfig, &devices, &execution, &synchronizer, nullptr, false);
 
         NnWorkerWeightReader weightReader(&executor, network);
         weightReader.read();

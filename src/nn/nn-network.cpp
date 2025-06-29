@@ -613,6 +613,7 @@ void NnRootConfigWriter::writeNet(NnUint socketIndex, NnNetConfig *config) {
     network->write(socketIndex, &config->nBatches, sizeof(config->nBatches));
     network->write(socketIndex, &config->nNodes, sizeof(config->nNodes));
     network->write(socketIndex, &config->nPipes, sizeof(config->nPipes));
+    network->write(socketIndex, &config->nSlots, sizeof(config->nSlots));
     for (NnUint pipeIndex = 0; pipeIndex < config->nPipes; pipeIndex++) {
         NnPipeConfig *pipeConfig = &config->pipes[pipeIndex];
         network->write(socketIndex, &pipeConfig->size, sizeof(pipeConfig->size));
@@ -642,6 +643,7 @@ void NnRootConfigWriter::writeNode(NnUint socketIndex, NnNodeConfig *config) {
         NnSegmentConfig *segmentConfig = &config->segments[segmentIndex];
         network->write(socketIndex, &segmentConfig->nSyncs, sizeof(segmentConfig->nSyncs));
         network->write(socketIndex, &segmentConfig->nOps, sizeof(segmentConfig->nOps));
+        network->write(socketIndex, &segmentConfig->nCacheSyncs, sizeof(segmentConfig->nCacheSyncs));
 
         for (NnUint syncIndex = 0; syncIndex < segmentConfig->nSyncs; syncIndex++) {
             NnSyncConfig *syncConfig = &segmentConfig->syncs[syncIndex];
@@ -659,6 +661,11 @@ void NnRootConfigWriter::writeNode(NnUint socketIndex, NnNodeConfig *config) {
             network->write(socketIndex, &opConfig->output, sizeof(opConfig->output));
             if (opConfig->configSize > 0)
                 network->write(socketIndex, opConfig->config, opConfig->configSize);
+        }
+        for (NnUint cacheSyncIndex = 0; cacheSyncIndex < segmentConfig->nCacheSyncs; cacheSyncIndex++) {
+            NnCacheSyncConfig *cacheSyncConfig = &segmentConfig->cacheSyncs[cacheSyncIndex];
+            network->write(socketIndex, &cacheSyncConfig->cacheSyncType, sizeof(cacheSyncConfig->cacheSyncType));
+            network->write(socketIndex, &cacheSyncConfig->bufferIndex, sizeof(cacheSyncConfig->bufferIndex));
         }
     }
     network->readAck(socketIndex);
@@ -682,6 +689,7 @@ NnNetConfig NnWorkerConfigReader::readNet() {
     network->read(ROOT_SOCKET_INDEX, &config.nBatches, sizeof(config.nBatches));
     network->read(ROOT_SOCKET_INDEX, &config.nNodes, sizeof(config.nNodes));
     network->read(ROOT_SOCKET_INDEX, &config.nPipes, sizeof(config.nPipes));
+    network->read(ROOT_SOCKET_INDEX, &config.nSlots, sizeof(config.nSlots));
     config.pipes = new NnPipeConfig[config.nPipes];
     for (NnUint pipeIndex = 0; pipeIndex < config.nPipes; pipeIndex++) {
         NnPipeConfig *pipeConfig = &config.pipes[pipeIndex];
@@ -719,6 +727,7 @@ NnNodeConfig NnWorkerConfigReader::readNode() {
         NnSegmentConfig *segmentConfig = &config.segments[segmentIndex];
         network->read(ROOT_SOCKET_INDEX, &segmentConfig->nSyncs, sizeof(segmentConfig->nSyncs));
         network->read(ROOT_SOCKET_INDEX, &segmentConfig->nOps, sizeof(segmentConfig->nOps));
+        network->read(ROOT_SOCKET_INDEX, &segmentConfig->nCacheSyncs, sizeof(segmentConfig->nCacheSyncs));
 
         if (segmentConfig->nSyncs > 0) {
             segmentConfig->syncs = new NnSyncConfig[segmentConfig->nSyncs];
@@ -746,6 +755,16 @@ NnNodeConfig NnWorkerConfigReader::readNode() {
                     opConfig->config = new NnByte[opConfig->configSize];
                     network->read(ROOT_SOCKET_INDEX, opConfig->config, opConfig->configSize);
                 }
+            }
+        }
+
+        if (segmentConfig->nCacheSyncs > 0) {
+            segmentConfig->cacheSyncs = new NnCacheSyncConfig[segmentConfig->nCacheSyncs];
+
+            for (NnUint cacheSyncIndex = 0; cacheSyncIndex < segmentConfig->nCacheSyncs; cacheSyncIndex++) {
+                NnCacheSyncConfig *cacheSyncConfig = &segmentConfig->cacheSyncs[cacheSyncIndex];
+                network->read(ROOT_SOCKET_INDEX, &cacheSyncConfig->cacheSyncType, sizeof(cacheSyncConfig->cacheSyncType));
+                network->read(ROOT_SOCKET_INDEX, &cacheSyncConfig->bufferIndex, sizeof(cacheSyncConfig->bufferIndex));
             }
         }
     }

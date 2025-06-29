@@ -165,7 +165,29 @@ NnDeviceSegment *NnCpuDevice::createSegment(NnUint segmentIndex) {
     delete [] slotInputs;
     delete [] slotOutputs;
 
-    return new NnCpuDeviceSegment(opForward, opContexts, segmentConfig->nOps);
+    NnCpuDeviceCacheSyncOp* cacheSyncOps = new NnCpuDeviceCacheSyncOp[segmentConfig->nCacheSyncs];
+    for (NnUint cacheSyncIndex = 0; cacheSyncIndex < segmentConfig->nCacheSyncs; cacheSyncIndex++) {
+        cacheSyncOps[cacheSyncIndex].slotTargets = new NnByte *[nSlots];
+        NnUint bufferIndex = segmentConfig->cacheSyncs[cacheSyncIndex].bufferIndex;
+        NnCacheSyncType type = segmentConfig->cacheSyncs[cacheSyncIndex].cacheSyncType; 
+        for (NnUint slotIndex = 0; slotIndex < nSlots; slotIndex++) {
+            cacheSyncOps[cacheSyncIndex].slotTargets[slotIndex] = slotBuffers[slotIndex][bufferIndex];
+        }
+
+        cacheSyncOps[cacheSyncIndex].type = type;
+        if (type == CACHE_SYNC_LOAD) {
+            cacheSyncOps[cacheSyncIndex].cacheId = &netExecution->cacheLoadId;
+        } else { // CACHE_SYNC_SAVE
+            cacheSyncOps[cacheSyncIndex].cacheId = &netExecution->cacheSaveId;
+        }
+        cacheSyncOps[cacheSyncIndex].bufferIndex = bufferIndex;
+        cacheSyncOps[cacheSyncIndex].size = nodeConfig->buffers[bufferIndex].size;
+
+        if (type == CACHE_SYNC_SAVE_KV) {
+            cacheSyncOps[cacheSyncIndex].kvPos = (float *)(netExecution->pipes[0]);
+        }
+    }
+    return new NnCpuDeviceSegment(opForward, opContexts, segmentConfig->nOps, cacheSyncOps, segmentConfig->nCacheSyncs, &netExecution->slot);
 }
 
 NnCpuDeviceSegment::~NnCpuDeviceSegment() {
@@ -248,3 +270,37 @@ void NnCpuDeviceSegment::forward(NnUint opIndex, NnUint nThreads, NnUint threadI
     // printf("forward: %d %s (%d/%d)\n", opIndex, context->name, threadIndex + 1, nThreads); fflush(stdout);
     opForward[opIndex](nThreads, threadIndex, batchSize, context);
 }
+
+
+void NnCpuDeviceSegment::syncCache(NnCacheDatabase* db, NnUint nThreads, NnUint threadIndex, NnCacheSyncType type) {
+    for (NnUint cacheSyncOpIndex = 0; cacheSyncOpIndex < nCacheSyncOps; cacheSyncOpIndex++) {
+        NnCpuDeviceCacheSyncOp *op = &cacheSyncOps[cacheSyncOpIndex];
+        if (op->type != type)
+            continue;
+        if (*op->cacheId == CACHE_SKIP)
+            continue;
+
+        NnByte* target = op->slotTargets[*slot];
+
+        if (op->type == CACHE_SYNC_LOAD) {
+            if (threadIndex == 0) {
+                NnSize nBytes = op->size.nBytes;
+                db->read(*op->cacheId, op->bufferIndex, target, &nBytes); 
+            }
+        } else { // CACHE_SYNC_SAVE or CACHE_SYNC_SAVE_KV
+            NnSize nBytes = op->size.nBytes;
+            if (op->type == CACHE_SYNC_SAVE_KV) {
+                NnSize2D size = size2D(op->size.floatType, (NnUint)(*op->kvPos), op->size.x);
+                // printf("%u %u %lu %f\n", size.x, size.y, size.nBytes, *op->kvPos);
+                nBytes = size.nBytes;
+            }
+            NnByte* cache = db->getWriteBuffer(*op->cacheId, op->bufferIndex, nBytes);
+            SPLIT_THREADS(start, end, nBytes, nThreads, threadIndex);
+            NnUint s = end - start;
+            if (s != 0)
+                std::memcpy(&cache[start], &target[start], s);
+        }
+
+    }
+}
+

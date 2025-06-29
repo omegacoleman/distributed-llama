@@ -11,6 +11,7 @@ public:
     virtual ~NnDeviceSegment() {};
     virtual void loadWeight(NnUint opIndex, NnSize nBytes, NnByte *weight) = 0;
     virtual void forward(NnUint opIndex, NnUint nThreads, NnUint threadIndex, NnUint batchSize) = 0;
+    virtual void syncCache(NnCacheDatabase* db, NnUint nThreads, NnUint threadIndex, NnCacheSyncType type) = 0;
 };
 
 class NnDevice {
@@ -41,18 +42,22 @@ public:
     NnUint nBatches;
     NnUint nSlots;
     NnUint slot;
+    NnCacheId cacheSaveId;
+    NnCacheId cacheLoadId;
     NnNetExecution(NnUint nThreads, NnNetConfig *netConfig);
     ~NnNetExecution();
     void setBatchSize(NnUint batchSize);
     void setSlot(NnUint slot);
+    void setCacheId(NnCacheId cacheSaveId, NnCacheId cacheLoadId);
 };
 
 enum NnExecutorStepType {
     STEP_EXECUTE_OP,
     STEP_SYNC_NODES,
+    STEP_SYNC_CACHE_LOAD,
+    STEP_SYNC_CACHE_SAVE,
+    N_STEP_TYPES,
 };
-
-#define N_STEP_TYPES STEP_SYNC_NODES + 1
 
 class NnExecutorDevice {
 public:
@@ -79,6 +84,7 @@ typedef struct {
     NnUint batchSize;
     Timer *timer;
     NnUint totalTime[N_STEP_TYPES];
+    NnCacheDatabase *cacheDb;
 } NnExecutorContext;
 
 typedef struct {
@@ -96,7 +102,7 @@ private:
     NnExecutorThread *threads;
     NnExecutorContext context;
 public:
-    NnExecutor(NnNetConfig *netConfig, NnNodeConfig *nodeConfig, std::vector<NnExecutorDevice> *device, NnNetExecution *netExecution, NnNodeSynchronizer *synchronizer, bool benchmark);
+    NnExecutor(NnNetConfig *netConfig, NnNodeConfig *nodeConfig, std::vector<NnExecutorDevice> *device, NnNetExecution *netExecution, NnNodeSynchronizer *synchronizer, NnCacheDatabase *cacheDb, bool benchmark);
     ~NnExecutor();
     void loadWeight(const char *name, NnUint index, NnSize nBytes, NnByte *weight);
     void forward();

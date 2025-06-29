@@ -14,6 +14,8 @@ NnNetExecution::NnNetExecution(NnUint nThreads, NnNetConfig *netConfig) {
     this->nSlots = netConfig->nSlots;
     this->batchSize = 0; // This value must be overwritten before calling forward
     this->slot = 0;
+    this->cacheSaveId = CACHE_SKIP;
+    this->cacheLoadId = CACHE_SKIP;
 
     pipes = new NnByte *[netConfig->nPipes];
     for (NnUint pipeIndex = 0; pipeIndex < netConfig->nPipes; pipeIndex++) {
@@ -40,13 +42,18 @@ void NnNetExecution::setSlot(NnUint slot) {
     this->slot = slot;
 }
 
+void NnNetExecution::setCacheId(NnCacheId cacheSaveId, NnCacheId cacheLoadId) {
+    this->cacheSaveId = cacheSaveId;
+    this->cacheLoadId = cacheLoadId;
+}
+
 NnExecutorDevice::NnExecutorDevice(NnDevice *device, int segmentFrom, int segmentTo) {
     this->device = std::unique_ptr<NnDevice>(device);
     this->segmentFrom = segmentFrom;
     this->segmentTo = segmentTo;
 }
 
-NnExecutor::NnExecutor(NnNetConfig *netConfig, NnNodeConfig *nodeConfig, std::vector<NnExecutorDevice> *devices, NnNetExecution *netExecution, NnNodeSynchronizer *synchronizer, bool benchmark)
+NnExecutor::NnExecutor(NnNetConfig *netConfig, NnNodeConfig *nodeConfig, std::vector<NnExecutorDevice> *devices, NnNetExecution *netExecution, NnNodeSynchronizer *synchronizer, NnCacheDatabase* cacheDb, bool benchmark)
     : segments(nodeConfig->nSegments), steps()
 {
     NnUint maxNThreads = 0;
@@ -76,12 +83,16 @@ NnExecutor::NnExecutor(NnNetConfig *netConfig, NnNodeConfig *nodeConfig, std::ve
             throw std::invalid_argument("Cannot locate device for segment " + std::to_string(segmentIndex));
 
         NnSegmentConfig *segmentConfig = &nodeConfig->segments[segmentIndex];
-        if (segmentConfig->nOps > 0) {
+        if (segmentConfig->nOps > 0 || segmentConfig->nCacheSyncs > 0) {
             NnDeviceSegment *segment = device->createSegment(segmentIndex);
             segments[segmentIndex] = std::unique_ptr<NnDeviceSegment>(segment);
 
+            if (segmentConfig->nCacheSyncs > 0)
+                steps.push_back(NnExecutorStep{ STEP_SYNC_CACHE_LOAD, segment, 0, nullptr });
             for (NnUint opIndex = 0; opIndex < segmentConfig->nOps; opIndex++)
                 steps.push_back(NnExecutorStep{ STEP_EXECUTE_OP, segment, opIndex, &segmentConfig->ops[opIndex] });
+            if (segmentConfig->nCacheSyncs > 0)
+                steps.push_back(NnExecutorStep{ STEP_SYNC_CACHE_SAVE, segment, 0, nullptr });
         }
         if (useSynchronizer && segmentConfig->nSyncs > 0)
             steps.push_back(NnExecutorStep{ STEP_SYNC_NODES, nullptr, segmentIndex, nullptr });
@@ -91,6 +102,7 @@ NnExecutor::NnExecutor(NnNetConfig *netConfig, NnNodeConfig *nodeConfig, std::ve
 
     context.nThreads = netExecution->nThreads;
     context.synchronizer = synchronizer;
+    context.cacheDb = cacheDb;
     context.nSteps = (NnUint)steps.size();
     context.steps = steps.data();
     if (benchmark)
@@ -133,6 +145,15 @@ inline void executeStep(NnExecutorStep *step, NnUint nThreads, NnExecutorThread 
         step->segment->forward(step->arg0, nThreads, thread->threadIndex, context->batchSize);
     } else if (step->type == STEP_SYNC_NODES) {
         context->synchronizer->sync(step->arg0, nThreads, thread->threadIndex);
+    } else if (step->type == STEP_SYNC_CACHE_LOAD) {
+        if (!context->cacheDb)
+            return;
+        step->segment->syncCache(context->cacheDb, nThreads, thread->threadIndex, CACHE_SYNC_LOAD);
+    } else if (step->type == STEP_SYNC_CACHE_SAVE) {
+        if (!context->cacheDb)
+            return;
+        step->segment->syncCache(context->cacheDb, nThreads, thread->threadIndex, CACHE_SYNC_SAVE);
+        step->segment->syncCache(context->cacheDb, nThreads, thread->threadIndex, CACHE_SYNC_SAVE_KV);
     } else {
         throw std::invalid_argument("Unsupported step type");
     }
