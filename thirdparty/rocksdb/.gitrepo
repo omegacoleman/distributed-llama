@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/ingydotnet/git-subrepo#readme
+;
+[subrepo]
+	remote = https://github.com/facebook/rocksdb.git
+	branch = 10.2.fb
+	commit = 4a0a0f5ff446d1a5622a2bd779fc55c3e166ada0
+	parent = b0af80db50a8d5bddb1375383ecaf898108821f7
+	method = merge
+	cmdver = 0.4.9
