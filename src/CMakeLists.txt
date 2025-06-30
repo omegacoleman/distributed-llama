@@ -7,12 +7,15 @@ set(APP_SRCS
   tokenizer.cpp
 )
 
+add_library(rocksdb-cache OBJECT rocksdb-cache.cpp)
+target_link_libraries(rocksdb-cache nn rocksdb)
+
 add_library(app OBJECT ${APP_SRCS})
-target_link_libraries(app nn)
+target_link_libraries(app nn rocksdb-cache)
 
 add_executable(dllama-api dllama-api.cpp)
-target_link_libraries(dllama-api app nn)
+target_link_libraries(dllama-api app nn rocksdb-cache)
 
 add_executable(dllama dllama.cpp)
-target_link_libraries(dllama app nn)
+target_link_libraries(dllama app nn rocksdb-cache)
 
