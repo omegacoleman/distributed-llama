@@ -4,7 +4,7 @@
 #include "nn-core.hpp"
 #include <atomic>
 #include <vector>
-#include "pthread.h"
+#include "pthread_wrapper.h"
 
 class NnDeviceSegment {
 public:

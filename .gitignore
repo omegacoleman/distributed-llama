@@ -17,3 +17,7 @@ server
 /dllama-*
 *.exe
 *.spv
+
+/build
+/compile_commands.json
+/.cache
