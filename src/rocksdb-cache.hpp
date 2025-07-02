@@ -22,6 +22,7 @@ public:
     std::vector<NnCacheDatabaseMetadata> loadMetadata();
     void read(NnCacheId id, NnUint bufferIndex, NnByte* dst, NnSize* nBytes) override;
     NnByte *getWriteBuffer(NnCacheId id, NnUint bufferIndex, NnSize nBytes) override;
+    bool dirty(NnCacheId id);
     void commit(NnCacheId id) override;
 
 private:

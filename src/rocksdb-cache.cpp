@@ -68,6 +68,10 @@ NnByte* RocksDbCacheDatabase::getWriteBuffer(NnCacheId id, NnUint bufferIndex, N
     return (NnByte*) stage[id].buffers[bufferIndex].data();
 }
 
+bool RocksDbCacheDatabase::dirty(NnCacheId id) {
+    return this->stage.count(id);
+}
+
 void RocksDbCacheDatabase::commit(NnCacheId id) {
     std::unique_lock lg{mut};
     rocksdb::WriteBatch batch;

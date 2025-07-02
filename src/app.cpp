@@ -378,6 +378,9 @@ void runWorkerApp(AppCliArgs *args) {
                 }
                 executor.forward();
                 isFirstAttempt = true;
+
+                if (inference.controlPacket.cacheSaveId != CACHE_SKIP && cacheDb && cacheDb->dirty(inference.controlPacket.cacheSaveId))  // TODO this is a hack, we really need RPC to do this right
+                    cacheDb->commit(inference.controlPacket.cacheSaveId);
             } catch (const NnReadNetworkException &e) {
                 printf("Read network exception: %s\n", e.message);
                 break;

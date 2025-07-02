@@ -77,11 +77,11 @@ public:
 class WorkerLlmInference {
 public:
     bool isFinished;
+    LlmControlPacket controlPacket;
 private:
     float *positionPipe;
     NnNetExecution *execution;
     NnNetwork *network;
-    LlmControlPacket controlPacket;
 public:
     WorkerLlmInference(NnNetExecution *execution, NnNetwork *network);
     bool tryReadControlPacket();
