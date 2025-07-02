@@ -352,8 +352,9 @@ public:
         if (dst.type == CACHE_DEVICE_SLOT) {
             slot = dst.slot;
             inferenceStartPos = dst.matchLen;
-            saveTo = dst.id;
-            printf("🔄 Prefix cache hit device slot %u (len = %u)\n", dst.slot, dst.prefixLen);
+            if (dst.matchLen == dst.prefixLen)
+                saveTo = dst.id;
+            printf("🔄 Prefix cache hit device slot %u (len = %u, match = %u)\n", dst.slot, dst.prefixLen, dst.matchLen);
         } else if (dst.type == CACHE_DB) {
             slot = cacheManager->pickSlot();
             loadFrom = dst.id;
