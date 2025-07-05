@@ -204,6 +204,17 @@ public:
         writeSocket(serverSocket, data.c_str(), data.size());
     }
 
+    void writeTooLarge() {
+        std::ostringstream buffer;
+        buffer << "HTTP/1.1 413 Content Too Large\r\n"
+            << "Connection: close\r\n"
+            << "Content-Length: 17\r\n"
+            << "\r\n"
+            << "Content Too Large";
+        std::string data = buffer.str();
+        writeSocket(serverSocket, data.c_str(), data.size());
+    }
+
     void writeNotFound() {
         std::ostringstream buffer;
         buffer << "HTTP/1.1 404 Not Found\r\n"
@@ -303,6 +314,7 @@ private:
     ChatTemplateGenerator *templateGenerator;
     NnPrefixCacheManager* cacheManager; // TODO ptr or obj ?
     NnCacheDatabase* db;
+    NnCachedContextTokenizer *contextTokenizer;
 
 public:
     ApiServer(RootLlmInference *inference, Tokenizer *tokenizer, Sampler *sampler, AppCliArgs *args, LlmHeader *header, EosDetector *eosDetector, ChatTemplateGenerator *templateGenerator, NnCacheDatabase *db) {
@@ -315,6 +327,7 @@ public:
         this->templateGenerator = templateGenerator;
         this->cacheManager = new NnPrefixCacheManager(header->slots, db);
         this->db = db;
+        this->contextTokenizer = new NnCachedContextTokenizer(templateGenerator, tokenizer, db);
     }
 
     void complete(HttpRequest& request) {
@@ -328,13 +341,21 @@ public:
             inputItems[i].message = params.messages[i].content;
         }
 
-        GeneratedChat inputPrompt = templateGenerator->generate(nInputItems, inputItems, true);
-        printf("🔹%s🔸", inputPrompt.content);
-
         int nPromptTokens;
-        std::unique_ptr<int[]> promptTokensPtr(new int[inputPrompt.length + 2]);
+        std::unique_ptr<int[]> promptTokensPtr(new int[header->seqLen + 2]);
         int *promptTokens = promptTokensPtr.get();
-        tokenizer->encode((char*)inputPrompt.content, promptTokens, &nPromptTokens, true, true);
+        if ((nPromptTokens = this->contextTokenizer->encodeContext(
+              inputItems, nInputItems, promptTokens, header->seqLen)) < 0) {
+            request.writeTooLarge();
+            return;
+        }
+
+        if (true) {
+            for (size_t i = 0; i < nPromptTokens; i++) {
+                printf("%s", tokenizer->decode(promptTokens[i], false));
+            }
+            printf("🔶\n");
+        }
 
         pos_t promptEndPos = nPromptTokens - 1;
         if (promptEndPos > header->seqLen)
@@ -376,10 +397,10 @@ public:
 
         if (params.stream)
             request.writeStreamStartChunk();
-        if (inputPrompt.publicPrompt != nullptr) {
+        if (templateGenerator->getPublicPrompt().size()) {
             if (params.stream)
-                writeChatCompletionChunk(request, inputPrompt.publicPrompt, false);
-            oss << inputPrompt.publicPrompt;
+                writeChatCompletionChunk(request, templateGenerator->getPublicPrompt(), false);
+            oss << templateGenerator->getPublicPrompt();
         }
 
         NnUint pos = inferenceStartPos;

@@ -7,7 +7,7 @@ set(APP_SRCS
   tokenizer.cpp
 )
 
-add_library(rocksdb-cache OBJECT rocksdb-cache.cpp)
+add_library(rocksdb-cache OBJECT rocksdb-cache.cpp city.cc)
 target_link_libraries(rocksdb-cache nn rocksdb)
 
 add_library(app OBJECT ${APP_SRCS})

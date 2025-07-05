@@ -9,9 +9,12 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/write_batch.h"
 
+#include "city.h"
+
 static void HandleStatus(const rocksdb::Status& status) {
     if (! status.ok()) {
         fprintf(stderr, "RocksDB Error : %s\n", status.ToString().c_str());
+        std::_Exit(1);
     }
 }
 
@@ -20,6 +23,19 @@ static std::string buildKey(NnCacheId id, NnUint bufferIndex) {
     oss << std::hex << std::setfill('0');
     oss << std::setw(sizeof(NnUint) * 2) << bufferIndex << "_";
     oss << std::setw(sizeof(NnCacheId) * 2) << id;
+    return oss.str();
+}
+
+#define FIELD_CHAT                3
+#define FIELD_TOKENS              4
+#define FIELD_LRU_TIMESTAMP       5
+
+static std::string buildMessageItemKey(uint128 hash, NnUint fieldIndex) {
+    std::ostringstream oss;
+    oss << std::hex << std::setfill('0');
+    oss << "__msg_";
+    oss << std::setw(sizeof(uint64) * 2) << hash.first << hash.second << "_";
+    oss << std::setw(sizeof(NnUint) * 2) << fieldIndex;
     return oss.str();
 }
 
@@ -115,5 +131,45 @@ std::vector<NnCacheDatabaseMetadata> RocksDbCacheDatabase::loadMetadata() {
     }
     HandleStatus(it->status());
     return metas;
+}
+
+void RocksDbCacheDatabase::putMessageTokens(const char* chat, size_t len, NnUint* tokens, size_t nTokens) {
+    auto hash = CityHash128(chat, len);
+    std::string keyChat = buildMessageItemKey(hash, FIELD_CHAT);
+    std::string keyTokens = buildMessageItemKey(hash, FIELD_TOKENS);
+
+    rocksdb::WriteBatch batch;
+    batch.Put(keyChat, rocksdb::Slice(chat, len));
+    batch.Put(keyTokens, rocksdb::Slice((const char *) tokens, nTokens * sizeof(NnUint)));
+    printf("RocksDB: Writing %s\n", keyChat.c_str());
+    printf("RocksDB: Writing %s, len = %lu\n", keyTokens.c_str(), nTokens);
+
+    auto status = db->Write(rocksdb::WriteOptions(), &batch);
+    HandleStatus(status);
+}
+
+int RocksDbCacheDatabase::tryGetMessageTokens(const char* chat, size_t len, NnUint* tokens, size_t maxTokens) {
+    auto hash = CityHash128(chat, len);
+    std::string keyChat = buildMessageItemKey(hash, FIELD_CHAT);
+    std::string keyTokens = buildMessageItemKey(hash, FIELD_TOKENS);
+
+    // verify the chat, handle colllisions
+    std::string chatBuf;
+    auto status = db->Get(rocksdb::ReadOptions(), keyChat, &chatBuf);
+    if (status.IsNotFound()) return 0;
+    HandleStatus(status);
+    if (chatBuf.compare(0, std::string::npos, chat, len) != 0) {
+        return 0;
+    }
+
+    std::string tokenBuf;
+    status = db->Get(rocksdb::ReadOptions(), keyTokens, &tokenBuf);
+    HandleStatus(status);
+
+    if (tokenBuf.size() / sizeof(NnUint) > maxTokens)
+        return -1;
+
+    std::memcpy(tokens, tokenBuf.data(), tokenBuf.size());
+    return tokenBuf.size() / sizeof(NnUint);
 }
 

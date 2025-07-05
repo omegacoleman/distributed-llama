@@ -334,6 +334,8 @@ public:
     virtual void read(NnCacheId id, NnUint bufferIndex, NnByte* dst, NnSize* nBytes) = 0;
     virtual NnByte *getWriteBuffer(NnCacheId id, NnUint bufferIndex, NnSize nBytes) = 0;
     virtual void commit(NnCacheId id) = 0;
+    virtual void putMessageTokens(const char* chat, size_t len, NnUint* tokens, size_t nTokens) = 0;
+    virtual int tryGetMessageTokens(const char* chat, size_t len, NnUint* tokens, size_t maxTokens) = 0;
 };
 
 #define CACHE_SKIP 0

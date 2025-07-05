@@ -1,12 +1,13 @@
 #ifndef TOKENIZER_HPP
 #define TOKENIZER_HPP
 
+#include "nn-core.hpp"
 #include <cstdio>
 #include <string>
 #include <vector>
 
 typedef struct {
-    char *str;
+    const char *str;
     unsigned int id;
 } TokenIndex;
 
@@ -55,11 +56,11 @@ public:
 
     Tokenizer(const char *tokenizer_path);
     ~Tokenizer();
-    int findSpecialTokenStartWith(char *piece);
-    int findRegularToken(char *piece);
-    void encode(char *text, int *tokens, int *nTokens, bool addBos, bool addSpecialTokens);
+    int findSpecialTokenStartWith(const char *piece);
+    int findRegularToken(const char *piece);
+    void encode(const char *text, int *tokens, int *nTokens, bool addBos, bool addSpecialTokens);
     bool isEos(int token);
-    char *decode(int token);
+    char *decode(int token, bool nullSpecial = true);
     void resetDecoder();
 
 private:
@@ -121,6 +122,8 @@ public:
     std::string buffer;
     ChatTemplateGenerator(const ChatTemplateType type, const char *chatTemplate, const char *eos);
     GeneratedChat generate(unsigned int nItems, ChatItem *items, bool appendGenerationPrompt);
+    std::string getGenerationPrompt() const;
+    std::string getPublicPrompt() const;
 };
 
 enum EosDetectorType {
@@ -149,6 +152,19 @@ public:
     bool isEos(int tokenId);
     char *getDelta();
     void reset();
+};
+
+class NnCachedContextTokenizer {
+private:
+    ChatTemplateGenerator *templateGenerator;
+    Tokenizer *tokenizer;
+    NnCacheDatabase *db;
+public:
+    NnCachedContextTokenizer(ChatTemplateGenerator *templateGenerator, Tokenizer *tokenizer, NnCacheDatabase *db)
+        : templateGenerator(templateGenerator), tokenizer(tokenizer), db(db) {}
+
+    int encodeItem(ChatItem *item, int *tokens, size_t maxTokens);
+    int encodeContext(ChatItem *items, size_t nItems, int *tokens, size_t maxTokens);
 };
 
 #endif

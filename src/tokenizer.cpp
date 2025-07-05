@@ -187,7 +187,7 @@ Tokenizer::~Tokenizer() {
     delete[] utf8Buffer;
 }
 
-int Tokenizer::findSpecialTokenStartWith(char *piece) {
+int Tokenizer::findSpecialTokenStartWith(const char *piece) {
     for (unsigned int i = 0; i < specialVocabSize; i++) {
         unsigned int tokenId = specialVocab[i].id;
         unsigned int length = vocabLength[tokenId];
@@ -197,7 +197,7 @@ int Tokenizer::findSpecialTokenStartWith(char *piece) {
     return -1;
 }
 
-int Tokenizer::findRegularToken(char *piece) {
+int Tokenizer::findRegularToken(const char *piece) {
     TokenIndex tok = { .str = piece };
     TokenIndex *res = (TokenIndex*)bsearch(&tok, regularVocab, regularVocabSize, sizeof(TokenIndex), compareTokens);
     return res != NULL ? res->id : -1;
@@ -282,10 +282,10 @@ char *Tokenizer::detokUtf8() {
     }
 }
 
-char *Tokenizer::decode(int token) {
-    if (token == bosId)
+char *Tokenizer::decode(int token, bool nullSpecial) {
+    if (token == bosId && nullSpecial)
         return nullptr;
-    if (isEos(token)) {
+    if (isEos(token) && nullSpecial) {
         if (strBufferPos > 0)
             return strBuffer;
         return nullptr;
@@ -302,7 +302,7 @@ char *Tokenizer::decode(int token) {
     return detokUtf8();
 }
 
-void Tokenizer::encode(char *text, int *tokens, int *nTokens, bool addBos, bool addSpecialTokens) {
+void Tokenizer::encode(const char *text, int *tokens, int *nTokens, bool addBos, bool addSpecialTokens) {
 #if DEBUG_TOKENIZER_BENCHMARK
     Timer startTime;
 #endif
@@ -316,7 +316,7 @@ void Tokenizer::encode(char *text, int *tokens, int *nTokens, bool addBos, bool 
     if (addBos)
         tokens[(*nTokens)++] = bosId;
 
-    for (char *c = text; *c != '\0'; c++) {
+    for (const char *c = text; *c != '\0'; c++) {
         if (addSpecialTokens) {
             int specialTokenId = findSpecialTokenStartWith(c);
             if (specialTokenId >= 0) {
@@ -562,6 +562,26 @@ ChatTemplateGenerator::ChatTemplateGenerator(const ChatTemplateType type, const 
     printf("⭐ Chat template: %s\n", chatTemplateTypeToString(this->type));
 }
 
+std::string ChatTemplateGenerator::getGenerationPrompt() const {
+    switch(type) {
+        case TEMPLATE_LLAMA3:
+            return "<|start_header_id|>assistant<|end_header_id|>\n\n";
+        case TEMPLATE_DEEP_SEEK3:
+            return "<｜Assistant｜><think>\n";
+        default:
+            return "";
+    }
+}
+
+std::string ChatTemplateGenerator::getPublicPrompt() const {
+    switch(type) {
+        case TEMPLATE_DEEP_SEEK3:
+            return "<think>\n";
+        default:
+            return "";
+    }
+}
+
 GeneratedChat ChatTemplateGenerator::generate(unsigned int nItems, ChatItem* items, bool appendGenerationPrompt) {
     buffer.clear();
 
@@ -701,3 +721,63 @@ char* EosDetector::getDelta() {
 void EosDetector::reset() {
     bufferPos = 0;
 }
+
+static void debugDumpTokens(const NnUint* token, NnUint tokenLen) {
+    printf("[ ");
+    for (NnUint i = 0; i < tokenLen; i++) {
+        printf("%d, ", token[i]);
+    }
+    printf("] len = %u\n", tokenLen);
+}
+
+int NnCachedContextTokenizer::encodeItem(ChatItem *item, int *tokens, size_t maxTokens) {
+    GeneratedChat gc = templateGenerator->generate(1, item, false);
+
+    if (db) {
+        int cacheRet = db->tryGetMessageTokens(gc.content, gc.length, (NnUint *) tokens, maxTokens);
+        if (cacheRet > 0) {
+            printf("Message Cache Hit, len = %d\n", cacheRet);
+            debugDumpTokens((NnUint *) tokens, cacheRet);
+            return cacheRet; // cache hit
+        }
+        if (cacheRet == -1) return -1; // maxTokens insufficent
+    }
+
+    std::vector<int> buffer;
+    buffer.resize(gc.length + 2);
+    int outTokens;
+    tokenizer->encode(gc.content, buffer.data(), &outTokens, false, true);
+    buffer.resize(outTokens);
+    if (outTokens > maxTokens) return -1;
+    std::memcpy(tokens, buffer.data(), sizeof(int) * outTokens);
+
+    if (db)
+        db->putMessageTokens(gc.content, gc.length, (NnUint *) tokens, outTokens);
+
+    return outTokens;
+}
+
+int NnCachedContextTokenizer::encodeContext(ChatItem *items, size_t nItems, int *tokens, size_t maxTokens) {
+    assert(maxTokens > 3);
+    size_t pos = 0;
+    tokens[pos++] = tokenizer->bosId;
+    for (size_t i = 0; i < nItems; i++) {
+        if (maxTokens <= pos)
+            return -1;
+        int count;
+        if ((count = encodeItem(&items[i], tokens + pos, maxTokens - pos)) < 0)
+            return -1;
+        pos += count;
+    }
+    std::string genPrompt = templateGenerator->getGenerationPrompt();
+    std::vector<int> buffer;
+    buffer.resize(genPrompt.size() + 2);
+    int outTokens;
+    tokenizer->encode(genPrompt.c_str(), buffer.data(), &outTokens, false, true);
+    buffer.resize(outTokens);
+    if (pos + outTokens > maxTokens) return -1;
+    std::memcpy(tokens + pos, buffer.data(), sizeof(int) * outTokens);
+    pos += outTokens;
+    return pos;
+}
+

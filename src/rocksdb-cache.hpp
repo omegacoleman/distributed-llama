@@ -24,6 +24,8 @@ public:
     NnByte *getWriteBuffer(NnCacheId id, NnUint bufferIndex, NnSize nBytes) override;
     bool dirty(NnCacheId id);
     void commit(NnCacheId id) override;
+    void putMessageTokens(const char* chat, size_t len, NnUint* tokens, size_t nTokens);
+    int tryGetMessageTokens(const char* chat, size_t len, NnUint* tokens, size_t maxTokens);
 
 private:
     rocksdb::DB* db = nullptr;
