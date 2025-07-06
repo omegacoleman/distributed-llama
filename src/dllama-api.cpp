@@ -433,8 +433,15 @@ public:
         for (; pos < maxPredPos;) {
             inference->setPosition(pos);
             inference->setToken(0, token);
-            inference->setCacheId(CACHE_SKIP, pos == inferenceStartPos ? loadFrom : CACHE_SKIP);
+            inference->setCacheId(pos == promptEndPos ? saveTo : CACHE_SKIP, pos == inferenceStartPos ? loadFrom : CACHE_SKIP);
             inference->forward();
+
+            if (pos == promptEndPos) {
+              if (db && saveTo != CACHE_SKIP) {
+                cacheManager->updateNnCacheDatabaseMetadata(saveTo, (unsigned*)promptTokens, pos);
+                db->commit(saveTo);
+              }
+            }
 
             pos++;
             token = sampler->sample(inference->logitsPipe);
