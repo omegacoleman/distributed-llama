@@ -3,6 +3,7 @@ set -e
 
 DLLAMA_ROLE="${DLLAMA_ROLE:-api}"
 DLLAMA_NTHREADS="${DLLAMA_THREADS:-$(nproc)}"
+DLLAMA_CACHE_DB="${DLLAMA_CACHE_DB:-}"
 
 DLLAMA_WORKER_PORT="${DLLAMA_WORKER_PORT:-9999}"
 DLLAMA_API_PORT="${DLLAMA_API_PORT:-9990}"
@@ -17,6 +18,9 @@ if [[ "$DLLAMA_ROLE" == "worker" ]]; then
   DLLAMA_CMD="/usr/bin/dllama worker\
  --nthreads '$DLLAMA_NTHREADS'\
  --port '$DLLAMA_WORKER_PORT'"
+  if [[ "$DLLAMA_CACHE_DB" != "" ]]; then
+    DLLAMA_CMD="$DLLAMA_CMD --cache-db '$DLLAMA_CACHE_DB'"
+  fi
 elif [[ "$DLLAMA_ROLE" == "api" ]]; then
   DLLAMA_CMD="/usr/bin/dllama-api\
  --nthreads '$DLLAMA_NTHREADS'\
@@ -27,6 +31,9 @@ elif [[ "$DLLAMA_ROLE" == "api" ]]; then
  --max-seq-len '$DLLAMA_MAX_SEQ_LEN'"
   if [[ "$DLLAMA_API_WORKERS" != "" ]]; then
     DLLAMA_CMD="$DLLAMA_CMD --workers '$DLLAMA_API_WORKERS'"
+  fi
+  if [[ "$DLLAMA_CACHE_DB" != "" ]]; then
+    DLLAMA_CMD="$DLLAMA_CMD --cache-db '$DLLAMA_CACHE_DB'"
   fi
 fi
 
