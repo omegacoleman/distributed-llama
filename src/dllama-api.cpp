@@ -350,12 +350,13 @@ public:
             return;
         }
 
-        if (true) {
-            for (size_t i = 0; i < nPromptTokens; i++) {
-                printf("%s", tokenizer->decode(promptTokens[i], false));
-            }
-            printf("🔶\n");
+#ifndef NDEBUG
+        printf("🔹");
+        for (size_t i = 0; i < nPromptTokens; i++) {
+            printf("%s", tokenizer->decode(promptTokens[i], false));
         }
+        printf("🔸\n");
+#endif
 
         pos_t promptEndPos = nPromptTokens - 1;
         if (promptEndPos > header->seqLen)
@@ -468,10 +469,16 @@ public:
             if (eosType == EOS)
               break;
         }
-        inference->setPosition(pos);
-        inference->setToken(0, token);
-        inference->setCacheId(saveTo, CACHE_SKIP);
-        inference->forward();
+        if (pos < NnPrefixCacheMinLen) {
+            saveTo = CACHE_SKIP;
+        }
+        if (db && saveTo != CACHE_SKIP) {
+            // TODO here's some reduntant calculation
+            inference->setPosition(pos);
+            inference->setToken(0, token);
+            inference->setCacheId(saveTo, CACHE_SKIP);
+            inference->forward();
+        }
 
         ChatMessage chatMessage("assistant", oss.str());
 

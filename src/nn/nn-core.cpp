@@ -338,3 +338,23 @@ void fullfillRopeLlama3Cache(const NnRopeLlamaOpConfig *config, float *cache) {
         }
     }
 }
+
+// debug print utility
+
+void dumpTokens(const NnUint* token, NnUint tokenLen) {
+    printf("[ ");
+#ifdef NDEBUG
+    if (tokenLen <= 6) {
+#endif
+        for (NnUint i = 0; i < tokenLen; i++) {
+            printf("%d, ", token[i]);
+        }
+#ifdef NDEBUG
+    } else {
+        printf("%u, %u, %u, ... , ", token[0], token[1], token[2]);
+        printf("%u, %u, %u, ", token[tokenLen - 3], token[tokenLen - 2], token[tokenLen - 1]);
+    }
+#endif
+    printf("] len = %u\n", tokenLen);
+}
+

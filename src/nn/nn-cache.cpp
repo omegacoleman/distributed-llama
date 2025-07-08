@@ -3,19 +3,6 @@
 
 #include <algorithm>
 
-static void debugDumpTokens(const NnUint* token, NnUint tokenLen) {
-    printf("[ ");
-    if (tokenLen <= 6) {
-        for (NnUint i = 0; i < tokenLen; i++) {
-            printf("%d, ", token[i]);
-        }
-    } else {
-        printf("%u, %u, %u, ... , ", token[0], token[1], token[2]);
-        printf("%u, %u, %u, ", token[tokenLen - 3], token[tokenLen - 2], token[tokenLen - 1]);
-    }
-    printf("] len = %u\n", tokenLen);
-}
-
 NnPrefixCacheManager::NnPrefixCacheManager(NnUint slots, NnCacheDatabase *db) {
     nSlots = slots;
     this->db = db;
@@ -42,7 +29,7 @@ NnPrefixCacheManager::NnPrefixCacheManager(NnUint slots, NnCacheDatabase *db) {
             trie.insert_ks((const char *)it.prefix, it.prefixLen * sizeof(NnUint), dst);
 
             printf("ID=%lu, LruScore=%u, Prefix=", it.id, it.lruScore);
-            debugDumpTokens(it.prefix, it.prefixLen);
+            dumpTokens(it.prefix, it.prefixLen);
         }
         printf("-- Finished loading cache metadata --\n");
     }
@@ -55,7 +42,7 @@ NnPrefixCacheManager::NnPrefixCacheManager(NnUint slots, NnCacheDatabase *db) {
 
 NnCacheDst NnPrefixCacheManager::lookup(NnUint* token, NnUint tokenLen) {
     printf("Lookup: ");
-    debugDumpTokens(token, tokenLen);
+    dumpTokens(token, tokenLen);
 
     size_t matchedPrefixLen = 0;
     auto rng = trie.equal_longest_prefix_range_ks((const char *)token, tokenLen * sizeof(NnUint), matchedPrefixLen);
@@ -99,7 +86,7 @@ void NnPrefixCacheManager::updateDeviceSlot(NnUint slot, NnUint* token, NnUint t
     NnSize tokenBytes = tokenLen * sizeof(NnUint);
 
     printf("Slot %u upd: ", slot);
-    debugDumpTokens(token, tokenLen);
+    dumpTokens(token, tokenLen);
 
     if (deviceSlots[slot].prefixLen > 0) {
         TrieImpl::iterator it = trie.find_ks((const char *)deviceSlots[slot].prefix, deviceSlots[slot].prefixLen * sizeof(NnUint));
@@ -137,7 +124,7 @@ void NnPrefixCacheManager::updateNnCacheDatabaseMetadata(NnCacheId id, NnUint* t
     NnSize tokenBytes = tokenLen * sizeof(NnUint);
 
     printf("DB cache %lu upd: ", id);
-    debugDumpTokens(token, tokenLen);
+    dumpTokens(token, tokenLen);
 
     if (dbMetas.count(id)) {
         TrieImpl::iterator it = trie.find_ks((const char *)dbMetas[id].prefix, dbMetas[id].prefixLen * sizeof(NnUint));

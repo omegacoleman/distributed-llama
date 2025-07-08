@@ -314,7 +314,7 @@ void fullfillRopeLlama3Cache(const NnRopeLlamaOpConfig *config, float *cache);
 
 typedef std::uint64_t NnCacheId;
 
-constexpr NnUint NnPrefixCacheMinLen =    1;
+constexpr NnUint NnPrefixCacheMinLen =  128;
 constexpr NnUint NnPrefixCacheMaxLen = 8192;
 
 constexpr NnUint NnLruScoreIndex = ~0;
@@ -339,5 +339,9 @@ public:
 };
 
 #define CACHE_SKIP 0
+
+// debug print utility
+
+void dumpTokens(const NnUint* token, NnUint tokenLen);
 
 #endif

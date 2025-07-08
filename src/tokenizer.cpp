@@ -722,14 +722,6 @@ void EosDetector::reset() {
     bufferPos = 0;
 }
 
-static void debugDumpTokens(const NnUint* token, NnUint tokenLen) {
-    printf("[ ");
-    for (NnUint i = 0; i < tokenLen; i++) {
-        printf("%d, ", token[i]);
-    }
-    printf("] len = %u\n", tokenLen);
-}
-
 int NnCachedContextTokenizer::encodeItem(ChatItem *item, int *tokens, size_t maxTokens) {
     GeneratedChat gc = templateGenerator->generate(1, item, false);
 
@@ -737,7 +729,7 @@ int NnCachedContextTokenizer::encodeItem(ChatItem *item, int *tokens, size_t max
         int cacheRet = db->tryGetMessageTokens(gc.content, gc.length, (NnUint *) tokens, maxTokens);
         if (cacheRet > 0) {
             printf("Message Cache Hit, len = %d\n", cacheRet);
-            debugDumpTokens((NnUint *) tokens, cacheRet);
+            dumpTokens((NnUint *) tokens, cacheRet);
             return cacheRet; // cache hit
         }
         if (cacheRet == -1) return -1; // maxTokens insufficent
