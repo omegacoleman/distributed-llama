@@ -63,6 +63,12 @@ EOF
           source = "/data/models"
           readonly = true
         }
+        mount {
+          type = "bind"
+          target = "/cache"
+          source = "/data/cache"
+          readonly = true
+        }
       }
       resources {
         cpu = 20
@@ -78,6 +84,7 @@ DLLAMA_API_WORKERS="{{ range $index, $value := nomadService "dllama-worker" }}
 {{- end }}"
 DLLAMA_MODEL_PATH="/data/dllama_model_llama-3.3-70b_q40.m"
 DLLAMA_TOKENIZER_PATH="/data/dllama_tokenizer_llama-3.3-70b.t"
+DLLAMA_CACHE_DB="/cache/dllama_model_llama-3.3-70b"
 EOF
         destination = "/env.txt"
         change_mode = "restart"
@@ -101,6 +108,12 @@ EOF
       config {
         image = "gwong-dllama:0833b28c"
         ports = [ "worker" ]
+        mount {
+          type = "bind"
+          target = "/cache"
+          source = "/data/cache"
+          readonly = true
+        }
       }
       resources {
         cpu = 20
@@ -110,6 +123,7 @@ EOF
         data = <<EOF
 DLLAMA_ROLE="worker"
 DLLAMA_WORKER_PORT="{{ env "NOMAD_PORT_worker" }}"
+DLLAMA_CACHE_DB="/cache/dllama_model_llama-3.3-70b"
 EOF
         destination = "/env.txt"
         change_mode = "restart"
