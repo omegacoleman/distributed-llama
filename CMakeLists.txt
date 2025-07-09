@@ -20,6 +20,7 @@ set(WITH_CORE_TOOLS OFF CACHE BOOL "" FORCE)
 set(WITH_TOOLS OFF CACHE BOOL "" FORCE)
 set(ROCKSDB_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 add_subdirectory(thirdparty/rocksdb EXCLUDE_FROM_ALL)
+add_subdirectory(thirdparty/oneTBB EXCLUDE_FROM_ALL)
 
 add_subdirectory(src)
 

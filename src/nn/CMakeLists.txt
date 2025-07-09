@@ -26,5 +26,5 @@ set(NN_HDRS
 add_library(nn OBJECT ${NN_SRCS})
 set_target_properties(nn PROPERTIES PUBLIC_HEADER ${NN_HDRS})
 target_include_directories(nn PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(nn Threads::Threads)
+target_link_libraries(nn Threads::Threads TBB::tbb)
 

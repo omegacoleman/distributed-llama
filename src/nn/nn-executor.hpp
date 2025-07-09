@@ -4,7 +4,9 @@
 #include "nn-core.hpp"
 #include <atomic>
 #include <vector>
-#include "pthread_wrapper.h"
+
+#include "oneapi/tbb/task_group.h"
+#include "oneapi/tbb/task_arena.h"
 
 class NnDeviceSegment {
 public:
@@ -79,8 +81,6 @@ typedef struct {
     NnUint nSteps;
     NnExecutorStep *steps;
     NnNodeSynchronizer *synchronizer;
-    std::atomic_uint currentStepIndex;
-    std::atomic_uint doneThreadCount;
     NnUint batchSize;
     Timer *timer;
     NnUint totalTime[N_STEP_TYPES];
@@ -90,7 +90,6 @@ typedef struct {
 typedef struct {
     NnUint threadIndex;
     NnExecutorContext *context;
-    PthreadHandler handler;
 } NnExecutorThread;
 
 class NnExecutor {
@@ -101,6 +100,8 @@ private:
     std::vector<NnExecutorStep> steps;
     NnExecutorThread *threads;
     NnExecutorContext context;
+    tbb::task_arena arena;
+    tbb::task_group group;
 public:
     NnExecutor(NnNetConfig *netConfig, NnNodeConfig *nodeConfig, std::vector<NnExecutorDevice> *device, NnNetExecution *netExecution, NnNodeSynchronizer *synchronizer, NnCacheDatabase *cacheDb, bool benchmark);
     ~NnExecutor();

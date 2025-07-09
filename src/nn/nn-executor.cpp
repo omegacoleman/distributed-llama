@@ -3,6 +3,8 @@
 #include <stdexcept>
 #include "nn-executor.hpp"
 
+#include "oneapi/tbb/parallel_for.h"
+
 void NnFakeNodeSynchronizer::sync(NnUint segmentIndex, NnUint nThreads, NnUint threadIndex) {
     // Nothing
 }
@@ -116,6 +118,10 @@ NnExecutor::NnExecutor(NnNetConfig *netConfig, NnNodeConfig *nodeConfig, std::ve
         thread->threadIndex = threadIndex;
         thread->context = &context;
     }
+
+    auto constraints = tbb::task_arena::constraints();
+    constraints.set_max_concurrency(netExecution->nThreads);
+    arena.initialize(constraints);
 }
 
 NnExecutor::~NnExecutor() {
@@ -159,43 +165,9 @@ inline void executeStep(NnExecutorStep *step, NnUint nThreads, NnExecutorThread 
     }
 }
 
-static inline void *executorThreadHandler(void *arg) {
-    NnExecutorThread *thread = (NnExecutorThread *)arg;
-    NnExecutorContext *context = thread->context;
-    NnUint nThreads = context->nThreads;
-    NnUint doneCount = nThreads - 1;
-
-    while (true) {
-        const unsigned int currentStepIndex = context->currentStepIndex.load();
-        if (currentStepIndex == context->nSteps)
-            break;
-
-        NnExecutorStep *step = &context->steps[currentStepIndex];
-        executeStep(step, nThreads, thread, context);
-
-        NnUint currentCount = context->doneThreadCount.fetch_add(1);
-        if (currentCount == doneCount) {
-            if (context->timer != nullptr) {
-                NnUint time = context->timer->elapsedMicroseconds();
-                context->totalTime[step->type] += time;
-                context->timer->reset();
-            }
-
-            context->doneThreadCount.store(0);
-            context->currentStepIndex.fetch_add(1);
-        } else {
-            while (context->currentStepIndex.load() == currentStepIndex);
-        }
-    }
-    return nullptr;
-}
-
 void NnExecutor::forward() {
     assert(netExecution->batchSize > 0);
 
-    NnUint nThreads = netExecution->nThreads;
-    context.currentStepIndex.exchange(0);
-    context.doneThreadCount.exchange(0);
     context.batchSize = netExecution->batchSize;
 
     if (context.timer != nullptr) {
@@ -203,15 +175,26 @@ void NnExecutor::forward() {
         context.timer->reset();
     }
 
-    NnUint threadIndex;
-    for (threadIndex = 1; threadIndex < nThreads; threadIndex++) {
-        int result = pthread_create(&threads[threadIndex].handler, NULL, (PthreadFunc)executorThreadHandler, (void *)&threads[threadIndex]);
-        if (result != 0)
-            throw std::runtime_error("Failed to create thread");
-    }
-    executorThreadHandler((void *)&threads[0]);
-    for (threadIndex = 1; threadIndex < nThreads; threadIndex++)
-        pthread_join(threads[threadIndex].handler, NULL);
+    arena.execute([this] {
+        group.run([this] {
+            for (NnUint stepIndex = 0; stepIndex < this->context.nSteps; stepIndex++) {
+                tbb::parallel_for((NnUint) 0, (NnUint) this->netExecution->nThreads, [this, stepIndex](NnUint threadIndex){
+                    executeStep(
+                        &this->context.steps[stepIndex],
+                        this->netExecution->nThreads,
+                        &this->threads[threadIndex],
+                        this->threads[threadIndex].context
+                    );
+                    if (context.timer != nullptr) {
+                        NnUint time = context.timer->elapsedMicroseconds();
+                        context.totalTime[this->context.steps[stepIndex].type] += time;
+                        context.timer->reset();
+                    }
+                });
+            }
+        });
+    });
+    (void)group.wait();  // TODO currently cancellation not supported
 }
 
 NnUint NnExecutor::getTotalTime(NnExecutorStepType type) {
