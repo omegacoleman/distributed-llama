@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/ingydotnet/git-subrepo#readme
+;
+[subrepo]
+	remote = https://github.com/uxlfoundation/oneTBB.git
+	branch = master
+	commit = 9a771aafb61e3877e5a364322542f221b2f315cd
+	parent = 53fd9d99c9e07076362361418b9ef384ad318b77
+	method = merge
+	cmdver = 0.4.9
