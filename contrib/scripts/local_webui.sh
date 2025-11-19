@@ -22,5 +22,5 @@ export OPENAI_API_BASE_URL="http://127.0.0.1:9990/v1"
 export DATA_DIR=$HOME/webui-data
 mkdir -p $DATA_DIR
 
-open-webui serve --port 8000
+uvx --python 3.11 open-webui@latest serve --port 8000
 
